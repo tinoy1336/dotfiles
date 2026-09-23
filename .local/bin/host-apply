@@ -19,7 +19,7 @@
 #
 # Idempotent: a root file whose destination already holds identical content and
 # the same mode is skipped, and an already-enabled unit is skipped. Root steps
-# use sudo inline — the same path ~/dev/tinshell/setup.sh uses for its
+# use sudo inline — the same path the shell's own setup.sh uses for its
 # root-requiring steps. host-apply never reloads systemd, and never starts,
 # stops, disables or unmasks a unit.
 

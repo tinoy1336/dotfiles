@@ -30,7 +30,7 @@ const FIXTURES = [
   ["sed -n 1,80p apps/dock/config.ts", true, "R1 line range via sed"],
   ["head -40 /usr/bin/ags", true, "R1 head"],
   ["tail -n 30 /tmp/tinshell-crashes.log", true, "R1 tail"],
-  ["grep -rn foo /home/x/y.ts", true, "R1 grep explicit path"],
+  ["grep -rn foo /opt/example/y.ts", true, "R1 grep explicit path"],
   ["rg -n pattern apps/dock", true, "R1 rg explicit path"],
   ["grep -rIl pattern .", false, "listing mode (-l prints file names, not content)"],
   ["npx tsc --noEmit", true, "R2 tsc via npx"],

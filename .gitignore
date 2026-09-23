@@ -49,7 +49,7 @@
 !/.config/
 /.config/*
 # the extracted project's LIVE CONFIG — nine flat files, the machine's values.
-# The project's code lives in ~/dev/tinshell and is not re-included.
+# The shell's own tree is a separate repository and is not re-included.
 !/.config/tinshell/
 # hand-written tool and desktop config
 !/.config/hypr/
@@ -99,8 +99,8 @@
 /.local/*
 !/.local/bin/
 /.local/bin/__pycache__/
-# these three are absolute symlinks into the project tree; ~/dev/tinshell/setup.sh
-# recreates them, so the links themselves are not committed
+# these three are absolute symlinks into the shell's own tree; that tree's
+# setup.sh recreates them, so the links themselves are not committed
 /.local/bin/tinshell-host
 /.local/bin/tinshell-route
 /.local/bin/tinshell-mode
@@ -214,7 +214,7 @@ __pycache__/
 /.hplip/
 
 # 6e. the project's vendored and generated trees are its own repository's business.
-# They live under ~/dev/tinshell, which the /dev/ rule ignores. These two
+# They live in the shell's own tree, which the /dev rule ignores. These two
 # are different directories that still exist:
 /.config/ags-backup-popover/
 /.config/ags-archive-internal-panel/

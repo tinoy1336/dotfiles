@@ -13,8 +13,9 @@
 # whitespace, so every payload travels as one base64(JSON) token.
 
 # The router: the shell instance first, a dev promptd island second.
-# PROMPTD_ROUTE points the helpers at another router.
-PROMPTD_ROUTE="${PROMPTD_ROUTE:-$HOME/dev/tinshell/common/shell/tinshell-route.sh}"
+# PROMPTD_ROUTE points the helpers at another router; unset, the router is the
+# `tinshell-route` wrapper installed beside this file's own directory.
+PROMPTD_ROUTE="${PROMPTD_ROUTE:-$(cd -- "$(dirname -- "$(dirname -- "${BASH_SOURCE[0]}")")" && pwd)/tinshell-route}"
 
 # promptd_b64 <string> — the wire encoding of one request argument.
 promptd_b64() { printf '%s' "$1" | base64 -w0; }
