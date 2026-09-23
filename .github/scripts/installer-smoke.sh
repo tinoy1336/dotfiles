@@ -151,14 +151,19 @@ grep -q "$marker" "$home/.zshrc" || problem "the differing file was overwritten 
 [ "$keep" = "$(md5sum < "$home/.zshrc")" ] || problem "the differing file changed without --force"
 
 # ---- refusal: root -----------------------------------------------------------
-# A user namespace is enough to answer `id -u` with 0 without becoming root; when
-# the host refuses to create one, this check is skipped rather than faked.
+# A user namespace is enough to answer `id -u` with 0 without becoming root. When
+# the host refuses to create one, the check is announced as skipped rather than
+# passed over in silence: a run that cannot exercise the refusal has not verified
+# it, and the summary below must not read as if it had.
 if command -v unshare >/dev/null 2>&1 && [ "$(unshare -r id -u 2>/dev/null || echo x)" = "0" ]; then
   if unshare -r "$installer" "$home" --repo "$src" --dry-run > "$work/root.log" 2>&1; then
     problem "running as root was not refused"
   elif ! grep -q 'as root' "$work/root.log"; then
     problem "running as root failed for a reason other than the root refusal"
   fi
+else
+  echo "installer-smoke: SKIPPED the root refusal check — this host has no unshare that" >&2
+  echo "installer-smoke: maps a user namespace to uid 0" >&2
 fi
 
 [ "$status" -eq 0 ] || exit 1

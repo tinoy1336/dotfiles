@@ -21,7 +21,22 @@ set -eu
 # inherited CDPATH otherwise.
 unset CDPATH
 
+tool_missing() {
+  echo "shellcheck: $check is not available — install shellcheck, or name one as the" >&2
+  echo "shellcheck: first argument; THE LINT DID NOT RUN" >&2
+  exit 2
+}
+
+# The checker is resolved BEFORE anything else runs. A missing checker lends
+# nothing to the report, and an empty report reads exactly like a clean tree, so
+# the run would print a finding count of none and pass. Resolve a path argument
+# as an executable file and a bare name on PATH.
 check=${1:-shellcheck}
+case $check in
+*/*) [ -x "$check" ] || { tool_missing; } ;;
+*) command -v -- "$check" >/dev/null 2>&1 || { tool_missing; } ;;
+esac
+
 here=$(cd -- "$(dirname -- "$0")" && pwd)
 allow="$here/shellcheck-allowlist.txt"
 
@@ -50,15 +65,39 @@ done > "$list"
 
 [ -s "$list" ] || { echo "shellcheck: no tracked shell script found" >&2; exit 2; }
 
-# Warnings and errors both count; info and style notes do not. The command exits
-# non-zero as soon as it reports anything, which is what the parse below reads.
-# The directive below is the one suppression in this file, and it carries no
-# trailing text: a comment after a directive is not part of it.
+# Warnings and errors both count; info and style notes do not. The checker's own
+# status is read rather than discarded: 0 is a clean tree, 1 is findings, and
+# anything else is the checker failing, which is not the same answer as a clean
+# tree and must not be reported as one. The directive below suppresses the one
+# unquoted expansion in this file and carries no trailing text: a comment after a
+# directive is not part of it, and any line between it and the command it applies
+# to would end its reach.
+set +e
 # shellcheck disable=SC2046
-"$check" --format=gcc --severity=warning $(cat "$list") > "$report" 2>&1 || true
+"$check" --format=gcc --severity=warning $(cat "$list") > "$report" 2>&1
+run_status=$?
+set -e
+
+case $run_status in
+0 | 1) ;;
+*)
+  cat "$report" >&2
+  echo "shellcheck: $check exited $run_status — the lint did NOT complete" >&2
+  exit "$run_status"
+  ;;
+esac
 
 # gcc format is `path:line:col: severity: message [SCnnnn]`.
 sed -n 's/^\([^:]*\):[0-9]*:[0-9]*: .*\[\(SC[0-9]*\)\]$/\1:\2/p' "$report" | sort -u > "$pairs"
+
+# A run that reported findings but left no parsable line behind is a report the
+# parse cannot read — the shape changed, or the output was not this format — so
+# the finding count below would be a number derived from nothing.
+if [ "$run_status" -ne 0 ] && [ ! -s "$pairs" ]; then
+  cat "$report" >&2
+  echo "shellcheck: $check reported findings but its report carried none this parse can read" >&2
+  exit 1
+fi
 
 [ -f "$allow" ] || : > "$allow"
 unexpected=$(grep -vxF -f "$allow" "$pairs" || true)

@@ -4,8 +4,8 @@
 # delete a line when its check is fixed, and never add one for a script that was
 # written after the check existed.
 #
-# Two of these sit in files this change did not touch, and the rest are warnings
-# that predate the CI job.
+# Every entry below is a warning or error the tree already carried when this
+# list was written, in files that carry nothing else new.
 .local/bin/cli-keys:SC2174
 .local/bin/fix-asus-kbd:SC2318
 .local/bin/fix-asus-kbd:SC2034
