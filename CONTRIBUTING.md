@@ -74,6 +74,34 @@ technical fact only. No dates, no notes about how a value was discovered, no
 references to a plan document. A comment that explains a constraint is worth
 its lines; a comment that records the history of the change is not.
 
+## The installer
+
+`./install.sh <target-home>` populates a home directory from a clone of this
+repository; the README documents it for a reader who is not its author. The
+implementation is `.github/scripts/dotfiles-install.sh`, and
+`.github/scripts/installer-smoke.sh` is the job that holds it to what it
+promises.
+
+Three rules a change to that script has to keep:
+
+- **It never runs the `dotfiles` wrapper.** Every git call goes through
+  `git_permitted`, whose permitted set holds no `checkout`, `reset`, `clean`,
+  `restore`, `stash` or `read-tree`: the target files are written by the script
+  itself, from the cloned commit. That is the wrapper hazard above, removed by
+  construction rather than by care.
+- **A file that exists and differs is never overwritten without `--force`.**
+  Each one is named under `skipped` in the summary, and the target is left byte
+  for byte as it was.
+- **The placeholder set stated in the README stays complete.** A new placeholder
+  is a row in that table and a substitution in the installer, in the same
+  change. `.gitconfig` is the one tracked file the installer writes verbatim,
+  because its content is the identity the published history carries.
+
+Adding a file under `.github/` needs no `.gitignore` change — `!/.github/`
+re-includes the directory — but a file the installer should NOT write into a home
+directory belongs in its `surface` list beside `.github/`, `README.md`,
+`CONTRIBUTING.md` and `LICENSE`.
+
 ## Before pushing
 
 Run what CI runs. Each job is a script, so a green local run and a green CI run
@@ -83,6 +111,7 @@ are the same run:
 .github/scripts/shellcheck.sh
 .github/scripts/secrets-scan.sh
 .github/scripts/restore-rehearsal.sh .
+.github/scripts/installer-smoke.sh .
 ```
 
 `shellcheck.sh` lints every shell script the repository tracks. A finding fails
@@ -96,12 +125,21 @@ directory, and verifies the result. It is the check that catches a file that was
 added to the index but can no longer be produced from a clone. Run it with the
 repository as an argument — `"$HOME/.dotfiles.git"` here, `.` in a checkout.
 
+`installer-smoke.sh` installs into a scratch directory under `${TMPDIR:-/tmp}`
+and then checks what came out of it: the filled-in values reached the files, a
+second run wrote nothing and changed nothing, a pre-existing file that differs
+was named and left alone, and the root refusal fires. It takes the checkout as
+an argument, and reads the repository — it never writes to it.
+
 ## Adapting the repository to another machine
 
-The README's adaptation list is the short version. In practice: substitute the
-home directory and user name, drop the units that exec scripts under
-`~/dev/tinshell`, replace `.config/hosts/<machine>/` with one declaration for the
-new host, and delete the device rules that name hardware the new machine does not
-have. Keep the whitelist direction of `.gitignore` and the wrapper — both exist
-because the work tree is a live system, and both stop working the moment the git
-directory moves inside it.
+The README's adaptation list is the short version, and `./install.sh` is what
+applies the three placeholders (the headset address, the hostname directory, the
+absolute home path) on the way in. `--no-substitute` writes the tracked content
+exactly as committed, for a reader who would rather edit it in place.
+
+In practice, past what the installer does: drop the units that exec scripts under
+`~/dev/tinshell`, and replace or delete the device rules that name hardware the
+new machine does not have. Keep the whitelist direction of `.gitignore` and the
+wrapper — both exist because the work tree is a live system, and both stop
+working the moment the git directory moves inside it.
