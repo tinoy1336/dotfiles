@@ -1,0 +1,46 @@
+# The paired headset's connect-time volume, pinned per device.
+#
+# THIS IS A TEMPLATE. Its extension keeps WirePlumber from reading it — only
+# *.conf is loaded — and the address below is a placeholder that matches no
+# device. The rendered file beside it, 70-bt-headset-local.conf, is written from
+# this one with the paired device's address, and it is the one file in this
+# directory that git does not carry, because the address belongs to the machine
+# and not to the repository. Render it with:
+#
+#   sed -e 's|AA:BB:CC:DD:EE:FF|00:11:22:33:44:55|g' \
+#       -e 's|AA_BB_CC_DD_EE_FF|00_11_22_33_44_55|g' \
+#       70-bt-headset-local.conf.in > 70-bt-headset-local.conf
+#
+# or let .github/scripts/dotfiles-install.sh do it (--bluetooth-address).
+#
+# The device this pins is AA:BB:CC:DD:EE:FF; the matchers below spell it
+# AA_BB_CC_DD_EE_FF, which is how WirePlumber names nodes and devices. The rules
+# append to monitor.bluez.rules, which the tracked 50-bt-default.conf opens with
+# the rule that gives any Bluetooth sink the default slot; fragments load in
+# name order, so these are evaluated after it.
+monitor.bluez.rules = [
+  {
+    matches = [
+      {
+        node.name = "~^bluez_output.AA_BB_CC_DD_EE_FF.*"
+      }
+    ]
+    actions = {
+      update-props = {
+        volume = 0.3
+      }
+    }
+  }
+  {
+    matches = [
+      {
+        device.name = "~^bluez_card.AA_BB_CC_DD_EE_FF$"
+      }
+    ]
+    actions = {
+      update-props = {
+        device.routes.default-sink-volume = 0.3
+      }
+    }
+  }
+]

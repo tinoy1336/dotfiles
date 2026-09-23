@@ -30,11 +30,13 @@
 !/.gitignore
 !/.gtkrc-2.0
 # the repository's own surface: the CI workflows and the scripts they run, the
-# README, the contribution notes and the licence
+# README, the contribution notes, the licence, and the installer's root entry
+# point, which forwards to the script under .github/scripts/
 !/.github/
 !/README.md
 !/CONTRIBUTING.md
 !/LICENSE
+!/install.sh
 # NOT re-included, so ignored by /*: .zsh_history .bash_history
 # .python_history .node_repl_history .viminfo .wget-hsts .pulse-cookie
 # .zcompdump-*  (histories and completion dumps)
@@ -60,15 +62,24 @@
 !/.config/qalculate/
 !/.config/xdg-desktop-portal/
 !/.config/wireplumber/
+# the rendered per-machine fragment: WirePlumber reads *.conf, so the tracked
+# template beside it (*.in) is inert and the machine's own value lives in the
+# rendered file, which git does not carry
+/.config/wireplumber/wireplumber.conf.d/*-local.conf
 !/.config/pi-caveman/
 !/.config/gtk-3.0/
 !/.config/gtk-4.0/
 !/.config/systemd/
 # per-machine host declarations: the units a machine enables and the
-# root-scoped files it installs, applied by ~/.local/bin/host-apply. One
-# directory per machine; enablement links are gitignored, so this is the only
-# record of which units a rebuild has to re-enable
+# root-scoped files it installs, applied by ~/.local/bin/host-apply. The
+# declaration is tracked under the placeholder name HOSTNAME; host-apply opens
+# the directory named after the machine, which is a local symlink to that
+# directory — the name is the machine's, so it is not tracked, and enablement
+# links are gitignored too: this file is the record of which units a rebuild
+# has to re-enable
 !/.config/hosts/
+/.config/hosts/*
+!/.config/hosts/HOSTNAME/
 !/.config/environment.d/
 !/.config/autostart/
 !/.config/git/

@@ -93,14 +93,18 @@ Three rules a change to that script has to keep:
   Each one is named under `skipped` in the summary, and the target is left byte
   for byte as it was.
 - **The placeholder set stated in the README stays complete.** A new placeholder
-  is a row in that table and a substitution in the installer, in the same
-  change. `.gitconfig` is the one tracked file the installer writes verbatim,
-  because its content is the identity the published history carries.
+  is a row in that table and a step in the installer, in the same change. A value
+  the machine must read at runtime belongs in a local artifact rather than in the
+  tracked file: a tracked template whose `*.in` name no tool loads, rendered into
+  the gitignored destination beside it, or a name the machine's own tool resolves
+  as a link to the tracked one. `.gitconfig` is the one tracked file the installer
+  writes verbatim, because its content is the identity the published history
+  carries.
 
 Adding a file under `.github/` needs no `.gitignore` change — `!/.github/`
 re-includes the directory — but a file the installer should NOT write into a home
 directory belongs in its `surface` list beside `.github/`, `README.md`,
-`CONTRIBUTING.md` and `LICENSE`.
+`CONTRIBUTING.md`, `LICENSE` and `install.sh`.
 
 ## Before pushing
 
@@ -126,17 +130,22 @@ added to the index but can no longer be produced from a clone. Run it with the
 repository as an argument — `"$HOME/.dotfiles.git"` here, `.` in a checkout.
 
 `installer-smoke.sh` installs into a scratch directory under `${TMPDIR:-/tmp}`
-and then checks what came out of it: the filled-in values reached the files, a
-second run wrote nothing and changed nothing, a pre-existing file that differs
-was named and left alone, and the root refusal fires. It takes the checkout as
-an argument, and reads the repository — it never writes to it.
+and then checks what came out of it: the filled-in values reached the files the
+tools read — the rendered wireplumber fragment, the machine's name linked to the
+tracked declaration, the target home path — a second run wrote nothing and
+changed nothing, a pre-existing file that differs was named and left alone, and
+the root refusal fires. It checks the root forwarder too: `./install.sh` has to be
+executable and has to reach the installer it names, because a forwarder pointing
+at nothing fails silently everywhere else. It takes the checkout as an argument,
+and reads the repository — it never writes to it.
 
 ## Adapting the repository to another machine
 
 The README's adaptation list is the short version, and `./install.sh` is what
-applies the three placeholders (the headset address, the hostname directory, the
-absolute home path) on the way in. `--no-substitute` writes the tracked content
-exactly as committed, for a reader who would rather edit it in place.
+creates the machine's own artifacts on the way in: it renders the wireplumber
+fragment from its template and links this machine's name to the host declaration.
+`--no-substitute` writes the tracked content exactly as committed and creates
+neither, for a reader who would rather do both by hand.
 
 In practice, past what the installer does: drop the units that exec scripts under
 `~/dev/tinshell`, and replace or delete the device rules that name hardware the

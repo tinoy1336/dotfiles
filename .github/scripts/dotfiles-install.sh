@@ -7,18 +7,30 @@
 # $HOME and the git metadata outside it. This script reproduces that shape on
 # another machine: it clones (or updates) the repository into
 # <target-home>/.dotfiles.git and writes the tracked configuration into
-# <target-home>, substituting the values that belong to one machine rather than
-# to the repository:
+# <target-home>, filling in the values that belong to one machine rather than to
+# the repository:
 #
-#   the headset Bluetooth address   AA:BB:CC:DD:EE:FF (and WirePlumber's
-#                                   AA_BB_CC_DD_EE_FF form) in the wireplumber
-#                                   rules
-#   the hostname                    the HOSTNAME directory under .config/hosts/,
-#                                   which is renamed to this machine's name, and
-#                                   the path named in that directory's host.conf
+#   the headset Bluetooth address   the tracked template
+#                                   .config/wireplumber/wireplumber.conf.d/
+#                                   70-bt-headset-local.conf.in carries the
+#                                   placeholders AA:BB:CC:DD:EE:FF and
+#                                   AA_BB_CC_DD_EE_FF; this script renders it
+#                                   into the fragment beside it, the one file
+#                                   there that the repository does not carry
+#   the hostname                    the host declaration is tracked under the
+#                                   placeholder name .config/hosts/HOSTNAME/;
+#                                   this script links the machine's own name to
+#                                   it, because host-apply opens the directory
+#                                   named by `hostnamectl --static`
 #   the absolute home path          /home/tinoy wherever a tracked file carries
 #                                   it: the Hyprland configuration, the systemd
 #                                   user units, the environment snippets
+#
+# A tracked template is a file whose name ends in .in. It is written as the
+# commit carries it, placeholder intact, and its rendered twin — the same name
+# without the suffix — is written beside it: that is where a machine's value
+# belongs, and no tool mistakes the twin for the template, because WirePlumber
+# reads only *.conf and host-apply only a directory name.
 #
 # Options:
 #   --repo URL                clone or update from URL
@@ -26,7 +38,8 @@
 #   --ref REF                 branch, tag or commit to install (default: the ref
 #                             the repository itself is on)
 #   --bluetooth-address MAC   paired headset address, e.g. 11:22:33:44:55:66;
-#                             prompted for when omitted
+#                             prompted for when omitted, and rendered into the
+#                             local wireplumber fragment beside the template
 #   --hostname NAME           this machine's hostname; prompted for, then read
 #                             from `hostnamectl --static`, when omitted
 #   --user NAME               the user the target home belongs to; the paths
@@ -84,7 +97,9 @@ to one machine and printing every path it writes.
                             (default https://github.com/tinoy1336/dotfiles.git)
   --ref REF                 branch, tag or commit to install
                             (default: the ref the repository itself is on)
-  --bluetooth-address MAC   paired headset address, e.g. 11:22:33:44:55:66
+  --bluetooth-address MAC   paired headset address, e.g. 11:22:33:44:55:66,
+                            rendered into the local wireplumber fragment beside
+                            the tracked template
   --hostname NAME           this machine's hostname
   --user NAME               the user the target home belongs to
                             (default: the user running this script)
@@ -326,7 +341,7 @@ say "$prog: commit      ${commit:0:12} (${origin_note:-read})"
 # Repository surface, not configuration: these describe or check the repository
 # itself, and writing them into a home directory would put a CI workflow and a
 # licence where an application expects its own config.
-surface=".github/ README.md CONTRIBUTING.md LICENSE"
+surface=".github/ README.md CONTRIBUTING.md LICENSE install.sh"
 
 # The user the target home belongs to, for the paths that name one without
 # naming a home directory (a hyprpm cache path, a comment about which user a
@@ -347,6 +362,61 @@ skipped=0
 replaced=0
 skipped_list=""
 
+# ---- one destination, one decision -------------------------------------------
+# Identical content keeps the file, and keeps its mode right — an executable
+# that lost its bit is not the committed file. An existing file that differs is
+# named and left alone unless --force. A destination named as a link is
+# compared and written as a link instead (link_target) and nothing else is
+# stat-ed about it.
+place() {
+  local dest_path=$1 permissions=$2 source=$3 link_target=${4:-}
+  local dest="$target/$dest_path"
+
+  if [ -n "$link_target" ]; then
+    if [ -L "$dest" ] && [ "$(readlink -- "$dest")" = "$link_target" ]; then
+      step "  keep      $dest_path (link to $link_target)"
+      kept=$((kept + 1))
+      return 0
+    fi
+  elif [ -f "$dest" ] && [ ! -L "$dest" ] && cmp -s "$source" "$dest"; then
+    if [ "$(stat -c '%a' -- "$dest")" != "$permissions" ]; then
+      if [ "$dry" -eq 0 ]; then chmod "$permissions" "$dest"; fi
+      step "  keep      $dest_path (mode set to $permissions)"
+    else
+      step "  keep      $dest_path"
+    fi
+    kept=$((kept + 1))
+    return 0
+  fi
+
+  if [ -e "$dest" ] || [ -L "$dest" ]; then
+    if [ "$force" -eq 0 ]; then
+      step "  skip      $dest_path (exists and differs — --force overwrites it)"
+      skipped_list="$skipped_list $dest_path"
+      skipped=$((skipped + 1))
+      return 0
+    fi
+    if [ -d "$dest" ] && [ ! -L "$dest" ]; then
+      die "$dest is a directory and the commit carries a file there — refusing to remove it"
+    fi
+    step "  replace   $dest_path (replaced md5 $(md5sum -- "$dest" | cut -d' ' -f1))"
+    replaced=$((replaced + 1))
+  else
+    step "  write     $dest_path${link_target:+ (link to $link_target)}"
+    written=$((written + 1))
+  fi
+
+  if [ "$dry" -eq 0 ]; then
+    mkdir -p -- "$(dirname -- "$dest")"
+    if [ -n "$link_target" ]; then
+      rm -f -- "$dest"
+      ln -s -- "$link_target" "$dest"
+    else
+      install -m "$permissions" -- "$source" "$dest"
+    fi
+  fi
+}
+
 while IFS= read -r -d '' entry; do
   meta=${entry%%$'\t'*}
   path=${entry#*$'\t'}
@@ -354,19 +424,10 @@ while IFS= read -r -d '' entry; do
   sha=${meta##* }
 
   case "$path" in
-    .github/* | README.md | CONTRIBUTING.md | LICENSE) continue ;;
+    .github/* | README.md | CONTRIBUTING.md | LICENSE | install.sh) continue ;;
   esac
 
-  dest_path=$path
   permissions=${mode#100}
-  if [ "$substitute" -eq 1 ] && [ -n "$host" ]; then
-    case "$path" in
-      .config/hosts/HOSTNAME/*)
-        dest_path=".config/hosts/$host/${path#.config/hosts/HOSTNAME/}"
-        ;;
-    esac
-  fi
-  dest="$target/$dest_path"
 
   # What this script would write, built from the cloned commit and never from
   # the running work tree.
@@ -381,59 +442,38 @@ while IFS= read -r -d '' entry; do
       expressions+=(-e "s|$mac_placeholder|$mac|g")
       expressions+=(-e "s|${mac_placeholder//:/_}|${mac//:/_}|g")
     fi
-    [ -z "$host" ] || expressions+=(-e "s|\\.config/hosts/HOSTNAME/|.config/hosts/$(esc "$host")/|g")
     LC_ALL=C sed "${expressions[@]}" "$blob" > "$new"
   else
     cp "$blob" "$new"
   fi
 
+  template=${path%.in}
+  if [ "$template" != "$path" ]; then
+    # A tracked template ends in .in, which no tool reads. Its rendered twin —
+    # the same name without the suffix — carries the values, so the template is
+    # written as the commit holds it and the twin is written beside it.
+    if [ "$substitute" -eq 1 ]; then
+      place "$template" "$permissions" "$new"
+    fi
+    cp "$blob" "$new"
+  fi
+
   if [ "$mode" = "120000" ]; then
-    if [ -L "$dest" ] && [ "$(readlink -- "$dest")" = "$(cat "$blob")" ]; then
-      step "  keep      $dest_path"
-      kept=$((kept + 1))
-      continue
-    fi
-  elif [ -f "$dest" ] && [ ! -L "$dest" ] && cmp -s "$new" "$dest"; then
-    # Identical content is the idempotent case. The mode is still this script's
-    # to keep right: an executable that lost its bit is not the committed file.
-    if [ "$(stat -c '%a' -- "$dest")" != "$permissions" ]; then
-      [ "$dry" -eq 1 ] || chmod "$permissions" "$dest"
-      step "  keep      $dest_path (mode set to $permissions)"
-    else
-      step "  keep      $dest_path"
-    fi
-    kept=$((kept + 1))
-    continue
-  fi
-
-  if [ -e "$dest" ] || [ -L "$dest" ]; then
-    if [ "$force" -eq 0 ]; then
-      step "  skip      $dest_path (exists and differs — --force overwrites it)"
-      skipped_list="$skipped_list $dest_path"
-      skipped=$((skipped + 1))
-      continue
-    fi
-    if [ -d "$dest" ] && [ ! -L "$dest" ]; then
-      die "$dest is a directory and the commit carries a file there — refusing to remove it"
-    fi
-    was=$(md5sum -- "$dest" | cut -d' ' -f1)
-    step "  replace   $dest_path (replaced md5 $was)"
-    replaced=$((replaced + 1))
+    place "$path" "" "$new" "$(cat "$blob")"
   else
-    step "  write     $dest_path"
-    written=$((written + 1))
-  fi
-
-  if [ "$dry" -eq 0 ]; then
-    mkdir -p -- "$(dirname -- "$dest")"
-    if [ "$mode" = "120000" ]; then
-      rm -f -- "$dest"
-      ln -s -- "$(cat "$blob")" "$dest"
-    else
-      install -m "$permissions" -- "$new" "$dest"
-    fi
+    place "$path" "$permissions" "$new"
   fi
 done < <(git_permitted ls-tree -r -z "$commit")
+
+# ---- the machine's own name --------------------------------------------------
+# host-apply opens ~/.config/hosts/<hostname>, and the declaration is tracked
+# under the placeholder name HOSTNAME. The machine's name is a link to that
+# directory: the name belongs to the machine and cannot be tracked, while the
+# declaration's content stays in the tracked set instead of in a copy beside it
+# that would drift from the tracked one.
+if [ "$substitute" -eq 1 ] && [ -n "$host" ]; then
+  place ".config/hosts/$host" "" "" "HOSTNAME"
+fi
 
 # ---- what happened -----------------------------------------------------------
 say ""
@@ -442,14 +482,14 @@ say "$prog: repository-surface paths not installed: $surface"
 
 if [ "$substitute" -eq 1 ]; then
   if [ -n "$mac" ]; then
-    say "$prog: filled in   headset address $mac"
+    say "$prog: rendered    the local fragment with headset address $mac"
   else
-    warn "headset address not filled in — the wireplumber rules still read $mac_placeholder and match no device"
+    warn "headset address not given — the local fragment was not rendered, so no device volume is pinned"
   fi
   if [ -n "$host" ]; then
-    say "$prog: filled in   hostname $host (.config/hosts/$host)"
+    say "$prog: linked      .config/hosts/$host -> HOSTNAME"
   else
-    warn "hostname not filled in — .config/hosts/HOSTNAME stays a placeholder and host-apply will find no declaration for this machine"
+    warn "no hostname — .config/hosts carries only the placeholder and host-apply will find no declaration for this machine"
   fi
   say "$prog: filled in   home path $target"
 fi

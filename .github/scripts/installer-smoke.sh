@@ -5,10 +5,12 @@
 # checked here rather than assumed:
 #
 #   - a first run writes the tracked configuration and fills in the per-machine
-#     values (the headset address, the hostname, the home path)
+#     values: the headset address, the hostname, the home path
 #   - a second run writes nothing and changes nothing, byte for byte
 #   - a file that already exists and differs is named and left alone
 #   - running as root is refused
+#   - the repository's root forwarder exists, is executable, and reaches the
+#     installer it names
 #
 # Nothing is installed outside a scratch directory under ${TMPDIR:-/tmp}, and the
 # repository is read as the clone source, never written.
@@ -66,6 +68,16 @@ mac="11:22:33:44:55:66"
 host="smoke-host"
 mkdir -p "$home"
 
+# ---- the root forwarder ------------------------------------------------------
+forwarder="$src/install.sh"
+[ -f "$forwarder" ] || problem "no ./install.sh at the repository root"
+[ -x "$forwarder" ] || problem "./install.sh is not executable"
+if [ -x "$forwarder" ]; then
+  "$forwarder" --help > "$work/forwarder.log" 2>&1 || problem "./install.sh --help failed"
+  grep -q 'Usage: dotfiles-install.sh' "$work/forwarder.log" ||
+    problem "./install.sh did not reach the installer"
+fi
+
 # ---- first run ---------------------------------------------------------------
 "$installer" "$home" --repo "$src" --hostname "$host" --bluetooth-address "$mac" \
   --quiet > "$work/first.log" 2>&1 || problem "the first install failed"
@@ -78,16 +90,29 @@ on_disk=$(installed_count)
   problem "the first run reported $written path(s) written and $on_disk arrived on disk"
 [ "${written:-0}" -gt 100 ] || problem "the first run wrote only $written path(s)"
 
-# The values it fills in.
-bt="$home/.config/wireplumber/wireplumber.conf.d/50-bt-default.conf"
-grep -q "$mac" "$bt" || problem "the headset address did not reach 50-bt-default.conf"
-grep -q "$(printf '%s' "$mac" | tr ':' '_')" "$bt" ||
-  problem "the underscore form of the headset address did not reach the wireplumber matchers"
-grep -q 'AA:BB:CC:DD:EE:FF' "$bt" && problem "the headset placeholder survived a filled-in install"
+# The values it fills in: the address lands in the rendered fragment beside the
+# tracked template, and this machine's name is a link to the tracked declaration.
+fragdir="$home/.config/wireplumber/wireplumber.conf.d"
+grep -q "$mac" "$fragdir/70-bt-headset-local.conf" ||
+  problem "the headset address did not reach the rendered wireplumber fragment"
+grep -q "$(printf '%s' "$mac" | tr ':' '_')" "$fragdir/70-bt-headset-local.conf" ||
+  problem "the underscore form of the headset address did not reach the rendered fragment"
+grep -q 'AA_BB_CC_DD_EE_FF' "$fragdir/70-bt-headset-local.conf.in" ||
+  problem "the tracked template lost its placeholder"
+grep -q 'AA_BB_CC_DD_EE_FF\|AA:BB:CC:DD:EE:FF' "$fragdir/70-bt-headset-local.conf" &&
+  problem "the rendered fragment still carries a placeholder"
+grep -q 'AA_BB_CC_DD_EE_FF' "$fragdir/50-bt-default.conf" &&
+  problem "the tracked rule names a device, so it is not machine-independent"
 
+[ -L "$home/.config/hosts/$host" ] ||
+  problem "this machine's name is not a link to the tracked host declaration"
+[ "$(readlink -- "$home/.config/hosts/$host")" = "HOSTNAME" ] ||
+  problem "this machine's name does not link to the tracked HOSTNAME declaration"
 [ -f "$home/.config/hosts/$host/host.conf" ] ||
-  problem "the host declaration was not renamed to $host"
-[ -d "$home/.config/hosts/HOSTNAME" ] && problem "the HOSTNAME placeholder directory is still present"
+  problem "the host declaration is not readable under this machine's own name"
+[ -d "$home/.config/hosts/HOSTNAME" ] ||
+  problem "the tracked HOSTNAME declaration directory is not installed"
+[ -e "$home/install.sh" ] && problem "the root forwarder was installed into the home"
 
 grep -q "$home" "$home/.zshenv" || problem "the home path was not substituted into .zshenv"
 grep -rq '/home/tinoy' "$home/.config" "$home/.local" 2>/dev/null &&

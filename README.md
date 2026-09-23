@@ -54,19 +54,43 @@ What it will not do:
 
 Running it twice is safe: the second run reports every path unchanged and writes
 nothing. `--dry-run` prints the plan and changes nothing, and `--no-substitute`
-writes the tracked content exactly as it is committed, placeholders included.
+writes the tracked content exactly as it is committed and creates neither local
+artifact below, placeholders included.
 
 ## The placeholders in the tracked set
 
-Three values are not this repository's to keep. They are written as placeholders
-so they read as obviously incomplete rather than as silently wrong, and the
-installer replaces all three — a manual copy has to:
+Three values are not this repository's to keep: the paired headset's Bluetooth
+address, this machine's hostname, and the author's home path. They are written as
+placeholders so they read as obviously incomplete rather than as silently wrong.
 
-| placeholder | where it sits | what replaces it |
-| --- | --- | --- |
-| `AA:BB:CC:DD:EE:FF`, and WirePlumber's underscore form `AA_BB_CC_DD_EE_FF` | `.config/wireplumber/wireplumber.conf.d/50-bt-default.conf` — in the comment and in the two matchers | the paired headset's Bluetooth address. WirePlumber spells it with underscores inside node and device names. Until it is filled in, the volume-pinning rules match no device; the rest of that file, which gives any Bluetooth sink the default output, does not name a device |
-| `HOSTNAME` | the directory `.config/hosts/HOSTNAME/`, and the path in the first line of its `host.conf` | the machine's own hostname, `hostnamectl --static` — the name `~/.local/bin/host-apply` looks up, so rename the directory and rewrite that line together |
-| `/home/tinoy` | the Hyprland configuration and binds, the systemd user units, the environment snippets, the comment at the top of `.gitignore` | the target home directory, wherever a tracked file names it |
+The first two cannot simply be left in a tracked file and substituted on the way
+in, because this checkout is also a live home directory: whatever is tracked is
+what the machine reads. So the tracked set carries the *shape* of each value and
+the machine keeps the value itself, in a file git ignores.
+
+| value | the tracked file | where the machine's value lives | how the tool finds it |
+| --- | --- | --- | --- |
+| the headset's Bluetooth address, `AA:BB:CC:DD:EE:FF` and WirePlumber's `AA_BB_CC_DD_EE_FF` | `.config/wireplumber/wireplumber.conf.d/70-bt-headset-local.conf.in` — a template, named so WirePlumber never reads it (`*.in` is not `*.conf`) | the rendered fragment beside it, `70-bt-headset-local.conf`, which `.gitignore` excludes | the drop-in directory is itself an include mechanism: WirePlumber loads every `*.conf` in it, in name order, and appends what a fragment defines to the rules an earlier fragment opened |
+| `HOSTNAME` | the directory `.config/hosts/HOSTNAME/` and its `host.conf` — a machine's declaration, under the placeholder name | this machine's own name, as the link `.config/hosts/<hostname>` → `HOSTNAME`, which `.gitignore` excludes | `~/.local/bin/host-apply` opens the directory named by `hostnamectl --static`; the name is the link, the declaration stays the tracked directory, and no content is copied to drift from it |
+| `/home/tinoy` | the Hyprland configuration and binds, the systemd user units, the environment snippets, the comment at the top of `.gitignore` | — | the installer substitutes it on the way in; nothing reads it at runtime |
+
+`.config/wireplumber/wireplumber.conf.d/50-bt-default.conf` names no device: it is
+the rule that gives any Bluetooth sink the default slot, so it is the same on
+every machine. The two rules that pin one headset's connect-time volume are the
+only ones that need the address, and they are the ones in the rendered fragment —
+without it they simply match no device.
+
+The installer creates both local artifacts: it renders the fragment from its
+template and links the machine's name to the declaration. By hand it is those two
+commands:
+
+```sh
+cd ~/.config/wireplumber/wireplumber.conf.d
+sed -e 's|AA:BB:CC:DD:EE:FF|00:11:22:33:44:55|g' \
+    -e 's|AA_BB_CC_DD_EE_FF|00_11_22_33_44_55|g' \
+    70-bt-headset-local.conf.in > 70-bt-headset-local.conf
+ln -s HOSTNAME ~/.config/hosts/$(hostnamectl --static)
+```
 
 `.gitconfig` is deliberately **not** on that list. It carries the repository
 author's name and address because that is the identity the published history is
@@ -150,7 +174,7 @@ and friends are kept out of unrelated `git add` calls.
 | `.config/hypr/` | Hyprland configuration (`hyprland.lua` and the conf files it loads), idle timers, lock screen, the workspace-cycle and plugin-loader scripts |
 | `.config/tinshell/` | the shell's live config, one JSON file per surface |
 | `.config/systemd/user/` | the user units: the shell, the artifact warm, the portal, polkit, swaync, wallpaper and rotation units |
-| `.config/hosts/HOSTNAME/` | a machine's declaration — the units it enables, and the root-scoped files it installs at their absolute paths. Read by `~/.local/bin/host-apply`, which looks the directory up by this machine's hostname; the installer renames it from the placeholder |
+| `.config/hosts/HOSTNAME/` | a machine's declaration — the units it enables, and the root-scoped files it installs at their absolute paths. Read by `~/.local/bin/host-apply`, which looks the directory up by this machine's hostname; the installer links that name to this directory, so the declaration stays tracked under the placeholder name |
 | `.config/gtk-3.0/`, `.config/gtk-4.0/` | GTK theming and its window-decoration assets |
 | `.config/` (single files) | terminal, launcher, file-dialog, wallpaper and portal config, `mimeapps.list` and the XDG user directories |
 | `.local/bin/` | the hand-written scripts: the wrapper, `host-apply`, the sudo and zenity shims, the AGS-facing helpers, the promptd clients |
@@ -198,13 +222,16 @@ bash ~/dev/tinshell/setup.sh   # the shell's own tree, units, links and root ste
 host-apply                     # re-enable the units this host declares
 ```
 
-`~/.config/hosts/<hostname>/host.conf` is the record of which units a rebuild
-has to enable: git carries the unit files but not the enablement links, and
+`~/.config/hosts/HOSTNAME/host.conf` is the record of which units a rebuild has
+to enable: git carries the unit files but not the enablement links, and
 `host-apply` opens the directory named after the machine (`hostnamectl --static`).
-A restore by hand renames `.config/hosts/HOSTNAME/` to that name and rewrites the
-path in the first line of its `host.conf`. Two more things do not travel with the
-clone and need a hand — the pre-commit hook, which lives in the bare directory,
-and the two `node_modules` shims the shell's `setup.sh` recreates.
+A restore by hand links that name to the tracked declaration — `ln -s HOSTNAME
+~/.config/hosts/$(hostnamectl --static)` — and renders the wireplumber fragment
+the same way; both commands are under
+[The placeholders in the tracked set](#the-placeholders-in-the-tracked-set). Two
+more things do not travel with the clone and need a hand — the pre-commit hook,
+which lives in the bare directory, and the two `node_modules` shims the shell's
+`setup.sh` recreates.
 
 ## Adapting it to another machine
 
@@ -221,10 +248,11 @@ order of how much they matter:
    sleep-inhibit, Bluetooth and fan units for one laptop, and its `root/` tree
    mirrors files into `/etc` and `/usr/local`. Replace the directory, keep the
    shape.
-4. **Device rules.** The wireplumber rules name a paired headset by its Bluetooth
-   address, which is a placeholder here — the address-pinning entries are inert
-   until it is filled in, and on hardware without that headset they stay inert.
-   The keyboard script targets an ASUS model. Both can be deleted.
+4. **Device rules.** The wireplumber fragment that pins one headset's
+   connect-time volume names it by Bluetooth address, and the tracked template
+   carries a placeholder: with no rendered fragment the two rules match no
+   device, and on hardware without that headset they are better deleted than
+   filled in. The keyboard script targets an ASUS model. Both can be deleted.
 5. **Everything requiring the shell.** The tinshell config in `.config/tinshell/`,
    its units, and the `~/.local/bin` scripts that call `tinshell-route` do nothing
    without that project installed.
@@ -252,9 +280,11 @@ here it is the bare metadata directory.
 
 The installer job is the one with real value for someone who is not this
 machine's author: it installs into a scratch home and then checks what the
-installer promises — every filled-in value arrived, a second run writes nothing
-and changes nothing, a file that already exists and differs is named and left
-alone, and running as root is refused.
+installer promises — every filled-in value arrived where the tool reads it, a
+second run writes nothing and changes nothing, a file that already exists and
+differs is named and left alone, and running as root is refused. It also holds
+the repository's root entry point to what it claims to be: `./install.sh` has to
+exist, be executable, and reach the installer it names.
 
 ## Licence
 
