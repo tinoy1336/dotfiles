@@ -7,7 +7,7 @@
  * exposes *named colors* as the sanctioned customization seam. Overriding them
  * here re-tints every libadwaita surface (including AdwMessageDialog /
  * GtkAlertDialog, the GTK4 analogue of the native popups) to the AGS palette
- * from ~/dev/tinshell/common/shell/theme.css.
+ * from the shell tree's `common/shell/theme.css`.
  *
  * Note: AGS's own apps do NOT read this file — they load their own CSS.
  */

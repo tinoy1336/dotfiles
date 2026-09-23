@@ -1,0 +1,27 @@
+# Accepted path references — read by check-paths.mjs, one per line:
+#
+#   <path>:<line>|<detector>|<reason>
+#
+# The reason is required and lives on the same line, so accepting a reference
+# shows up in the diff that accepts it, with its justification beside it. An
+# entry that matches nothing is reported as stale — the reference it excused has
+# moved or gone, and the entry must go with it.
+#
+# This record sits beside the check rather than at the repository root because
+# the root is the live home directory.
+#
+# Every entry below is a reference this change did not own: three comments in
+# .gitignore and six files under .local/bin. Each names what the fix is; when
+# the file is fixed the entry must be deleted. The goal is an empty file.
+#
+# Detectors: .github/scripts/check-paths.mjs
+
+.gitignore:52|checkout-location|comment explaining why the shell's tree is excluded from this repository's tracked set; fix = name the tree without its location (or point at its README)
+.gitignore:102|checkout-location|comment explaining the three absolute symlinks into the shell's tree; fix = same as line 52
+.gitignore:217|checkout-location|comment explaining why the shell's tree needs its own re-include rule; fix = same as line 52
+.local/bin/host-apply:22|checkout-location|comment comparing this script's sudo use with the shell tree's setup.sh; fix = name the tree without its location
+.local/bin/lib/promptd-client.sh:17|checkout-location|live default for the router path — the same hardcoded-checkout bug the shell's own router carried; fix = resolve the router from this script's own location (readlink -f "$BASH_SOURCE"/$0, two directories up), never overwrite a PROMPTD_ROUTE the environment supplied
+.local/bin/pi-guard-probe:33|foreign-home|test fixture path in a guard probe, read by nothing; fix = a path that names no home (e.g. /opt/example/y.ts)
+.local/bin/tinshell-handoff-resume.sh:21|runtime-id|hardcoded runtime uid; fix = ${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+.local/bin/tinshell-handoff-resume.sh:23|runtime-id|hardcoded runtime uid; fix = the same expansion, then ${XDG_RUNTIME_DIR}/bus
+.local/bin/tinshell-handoff-resume.sh:24|runtime-id|hardcoded runtime uid; fix = the same expansion, then ${XDG_RUNTIME_DIR}/hypr

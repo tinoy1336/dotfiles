@@ -1,4 +1,4 @@
-# Four checks over the tracked set. Each job runs a script from .github/scripts,
+# Five checks over the tracked set. Each job runs a script from .github/scripts,
 # so the same run is available locally before a commit.
 #
 #   shellcheck          every tracked shell script, with the findings the tree
@@ -11,6 +11,10 @@
 #                       what a second run does, what it refuses to touch, and
 #                       that ./install.sh exists, is executable and forwards
 #                       to the installer it names
+#   portability         the path references in the tracked set: no file may name
+#                       a home the reader does not have, or a checkout path the
+#                       README does not document. Prose is read here — the other
+#                       jobs select files by extension and never open a README
 #
 # The tool versions are pinned and their tarballs are checked against a digest:
 # the local run and the CI run then lint the same scripts with the same shellcheck.
@@ -78,3 +82,11 @@ jobs:
         run: test -x ./install.sh
       - name: Install into a scratch home and check what the installer promises
         run: .github/scripts/installer-smoke.sh .
+
+  portability:
+    name: portability
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Path references resolve for a reader
+        run: .github/scripts/portability.sh

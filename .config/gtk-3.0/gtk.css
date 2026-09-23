@@ -8,7 +8,7 @@
  * in-process native dialogs (GtkMessageDialog / GtkDialog) drawn by GTK3 and
  * Electron apps. There is no IPC seam for those, so theming is the only lever.
  *
- * Palette mirrors ~/dev/tinshell/common/shell/theme.css + apps/promptd/style.css:
+ * Palette mirrors the shell tree's `common/shell/theme.css` + `apps/promptd/style.css`:
  *   text        #e6e6e6      secondary  #c9c9c9 / #a6a6a6
  *   accent      #8ab5f7      danger     #ff6b6b      warning #f0b35a
  *   card radius 14px         inner      12px

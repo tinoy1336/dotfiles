@@ -186,8 +186,8 @@ and friends are kept out of unrelated `git add` calls.
 Credential stores and key material (`~/.npmrc`, `~/.config/gh/`, the keyrings,
 the pass-cli vault's local key store), agent state under `~/.pi/`, machine state
 under `~/.local/state/` and `~/.local/share/`, caches, shell history, browser
-profiles, and the project tree at `~/dev/tinshell` — which is its own repository
-and is not part of this one.
+profiles, and the shell's own project tree — a separate repository, not part of
+this one.
 
 ## Restoring this onto a fresh machine
 
@@ -218,7 +218,7 @@ dotfiles read-tree HEAD    # the index from the commit; nothing on disk changes
 # instead of overwriting it — a distribution .bashrc is left as it is, per path
 dotfiles checkout-index -a
 
-bash ~/dev/tinshell/setup.sh   # the shell's own tree, units, links and root steps
+bash <path-to-tinshell>/setup.sh   # the shell's own tree: units, links and root steps
 host-apply                     # re-enable the units this host declares
 ```
 
@@ -242,8 +242,9 @@ order of how much they matter:
    binds, the idle timers, the units and the environment snippets. A different
    home directory means editing those, or substituting them at install time the
    way the shell's `setup.sh` does for its own units.
-2. **Project-independent units.** Several units exec scripts under
-   `~/dev/tinshell`. Without that tree they install and then fail; drop them.
+2. **Project-independent units.** Several units exec scripts from the shell's own
+   tree (the other repository). Without that tree they install and then fail; drop
+   them.
 3. **Host-specific hardware.** `.config/hosts/<machine>/` declares the rotation,
    sleep-inhibit, Bluetooth and fan units for one laptop, and its `root/` tree
    mirrors files into `/etc` and `/usr/local`. Replace the directory, keep the
