@@ -8,7 +8,9 @@
 #   restore-rehearsal   a bare clone into a scratch HOME, then verification that
 #                       the committed set actually rebuilds a home directory
 #   installer           the installer run into a scratch home: what it wrote,
-#                       what a second run does, and what it refuses to touch
+#                       what a second run does, what it refuses to touch, and
+#                       that ./install.sh exists, is executable and forwards
+#                       to the installer it names
 #
 # The tool versions are pinned and their tarballs are checked against a digest:
 # the local run and the CI run then lint the same scripts with the same shellcheck.
@@ -70,5 +72,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      # A forwarder that points at nothing is invisible until the day it is
+      # needed, so the entry point is checked before anything else runs.
+      - name: The root entry point exists and is executable
+        run: test -x ./install.sh
       - name: Install into a scratch home and check what the installer promises
         run: .github/scripts/installer-smoke.sh .
