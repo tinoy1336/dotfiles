@@ -1,7 +1,7 @@
 @import 'colors.css';
 
 /*
- * AGS-palette overrides for GTK4 / libadwaita apps (2026-09-01).
+ * AGS-palette overrides for GTK4 / libadwaita apps.
  *
  * GTK4 has no adw-gtk3 equivalent — libadwaita ships its own stylesheet and
  * exposes *named colors* as the sanctioned customization seam. Overriding them

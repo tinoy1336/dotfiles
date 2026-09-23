@@ -1,7 +1,7 @@
 @import 'colors.css';
 
 /*
- * AGS-palette overrides on top of adw-gtk3-dark (2026-09-01).
+ * AGS-palette overrides on top of adw-gtk3-dark.
  *
  * Base theme: adw-gtk3-dark (/usr/share/themes) — set in settings.ini and
  * gsettings. This file only re-skins the surfaces the AGS shell cannot own:
