@@ -138,7 +138,7 @@ hl.bind(mod .. " + Return", hl.dsp.exec_cmd(terminal))
 hl.bind(mod .. " + SHIFT + Return", hl.dsp.exec_cmd(terminalFloat))
 -- Launcher (AGS). ensure-launcher-toggle.sh is NOT in PATH, so it needs an
 -- absolute path (the ~/.local/bin absolute-path rule applies to any
--- out-of-PATH tool). It is a thin wrapper over the router (ags-route.sh
+-- out-of-PATH tool). It is a thin wrapper over the router (tinshell-route.sh
 -- launcher toggle): shell first, dev launcher island second, cold-start +
 -- servable-wait when neither — a press in the first ~1s after login lands
 -- instead of silently dying.
@@ -149,12 +149,12 @@ hl.bind(mod .. " + G", hl.dsp.exec_cmd(altBrowser))
 hl.bind(mod .. " + Y", hl.dsp.exec_cmd(musicApp))
 -- Notifications moved to mod+TAB (mod+N is the notes app's "new note" key).
 -- The shell owns the notifications surface — toggling the centre goes
--- through the router: `ags-route.sh notifications toggle-centre`.
-hl.bind(mod .. " + TAB", hl.dsp.exec_cmd("/home/tinoy/dev/tinshell/common/shell/ags-route.sh notifications toggle-centre"))
+-- through the router: `tinshell-route.sh notifications toggle-centre`.
+hl.bind(mod .. " + TAB", hl.dsp.exec_cmd("/home/tinoy/dev/tinshell/common/shell/tinshell-route.sh notifications toggle-centre"))
 -- Clipboard manager picker (AGS surface) — mod+SHIFT+V (mod+V is the float
 -- toggle, so the picker takes SHIFT+V). Routed the same as notifications:
--- `ags-route.sh clipboard toggle` (shell first, island second).
-hl.bind(mod .. " + SHIFT + V", hl.dsp.exec_cmd("/home/tinoy/dev/tinshell/common/shell/ags-route.sh clipboard toggle"))
+-- `tinshell-route.sh clipboard toggle` (shell first, island second).
+hl.bind(mod .. " + SHIFT + V", hl.dsp.exec_cmd("/home/tinoy/dev/tinshell/common/shell/tinshell-route.sh clipboard toggle"))
 -- AGS notes (on-demand app, NOT a systemd unit — see notes/AGENTS.md).
 -- ensure-new.sh: instant bus request when the app is up, cold start otherwise.
 -- N = a guaranteed fresh EMPTY note (`notes fresh`), never the closed-note
@@ -163,7 +163,7 @@ hl.bind(mod .. " + SHIFT + V", hl.dsp.exec_cmd("/home/tinoy/dev/tinshell/common/
 hl.bind(mod .. " + N", hl.dsp.exec_cmd("/home/tinoy/dev/tinshell/apps/notes/ensure-new.sh fresh"))
 hl.bind(mod .. " + SHIFT + N", hl.dsp.exec_cmd("/home/tinoy/dev/tinshell/apps/notes/ensure-new.sh new"))
 -- AGS launcher emoji mode (mod+. — the conventional emoji slot). Wrapper over
--- the router (ags-route.sh launcher emoji): shell first, dev launcher island
+-- the router (tinshell-route.sh launcher emoji): shell first, dev launcher island
 -- second, cold-start when neither. The same key opens the launcher in emoji
 -- mode, closes it when it is already in emoji mode, and switches it into emoji
 -- mode otherwise (never closes) — see launcher/AGENTS.md.
