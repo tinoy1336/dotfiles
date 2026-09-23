@@ -72,6 +72,37 @@ apply_file() {
     die "awww-daemon unreachable"
 }
 
+# The login wallpaper the greeter paints before login (greeter-owned, mode
+# 666, so the session user writes it without root).
+# TINSHELL_GREETER_WALLPAPER names another path for a caller that must not touch
+# the live login input.
+GREETER_WALLPAPER="${TINSHELL_GREETER_WALLPAPER:-/etc/greetd/tinshell-greeter/wallpaper.png}"
+
+# Publish $1 as the login wallpaper. The copy failing leaves the PREVIOUS image
+# at the login screen, so the failure is named on stderr and the caller exits
+# non-zero instead of reporting a sync that did not happen. A machine with no
+# greeter deployment has no login wallpaper to refresh — that is stated once
+# and is not a failure.
+publish_greeter_wallpaper() {
+    local src="$1" err
+    if [ ! -d "$(dirname "$GREETER_WALLPAPER")" ]; then
+        log "greeter wallpaper: no deployment at $(dirname "$GREETER_WALLPAPER") — not synced"
+        return 0
+    fi
+    if [ ! -r "$src" ]; then
+        printf 'wallpapers-sync: greeter wallpaper NOT synced — unreadable source: %s (login keeps %s)\n' \
+            "$src" "$(basename "$GREETER_WALLPAPER")" >&2
+        return 1
+    fi
+    if ! err="$(cp -f "$src" "$GREETER_WALLPAPER" 2>&1)"; then
+        printf 'wallpapers-sync: greeter wallpaper NOT synced — %s NOT replaced (%s); login keeps the previous image\n' \
+            "$GREETER_WALLPAPER" "${err:-cp failed}" >&2
+        return 1
+    fi
+    log "greeter wallpaper: $GREETER_WALLPAPER <- $src"
+    return 0
+}
+
 apply() {
     shopt -s nullglob
     local walls=("$dest"/*.png)
@@ -90,15 +121,15 @@ apply() {
     fi
     local pick="${walls[$((RANDOM % ${#walls[@]}))]}"
     apply_file "$pick"
-    cp "$pick" /etc/greetd/tinshell-greeter/wallpaper.png 2>/dev/null || true
+    publish_greeter_wallpaper "$pick" || exit 1
 }
 
 # Login handoff: apply the SAME image the greeter showed (the synced greeter
 # wallpaper) so the post-login transition is wallpaper -> same wallpaper, not
 # a visible swap to a random image. The 10-min rotation timer randomizes
-# later. The cp-back is best-effort parity (the file is already in place).
+# later.
 apply_greeter() {
-    local pick="/etc/greetd/tinshell-greeter/wallpaper.png"
+    local pick="$GREETER_WALLPAPER"
     [ -f "$pick" ] || die "greeter wallpaper missing: $pick"
     # Instant (no fade) + fast retry: the login handoff must paint the SAME
     # wallpaper the greeter showed as quickly as possible (the daemon may
@@ -106,7 +137,6 @@ apply_greeter() {
     for _ in $(seq 1 50); do
         if awww img "$pick" --transition-type none 2>/dev/null; then
             log "Applied: $pick"
-            cp "$pick" /etc/greetd/tinshell-greeter/wallpaper.png 2>/dev/null || true
             return 0
         fi
         sleep 0.2
