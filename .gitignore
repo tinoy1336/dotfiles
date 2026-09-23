@@ -15,6 +15,10 @@
 
 # --- 1. root whitelist: ignore every home-root entry --------------------------
 /*
+# /backups/ holds repository history whose contents were deliberately removed
+# from the tracked set. The rule above is the only thing hiding it, so it must
+# never be re-included: a `!/backups/` line here publishes that history in the
+# next commit.
 
 # --- 2. shell, editor, identity, home-root scripts (hand-written) ------------
 !/.zshrc

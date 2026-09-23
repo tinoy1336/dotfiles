@@ -55,7 +55,10 @@ line re-includes it, so a new file needs a line of its own, for the narrowest pa
 that carries the change. Never add `!` for a cache, an application profile, a
 credential store or a transcript directory — the hard-deny section exists for
 exactly those, and the `.local/bin/tinshell-route` case shows the shape a
-re-include takes when the file is a symlink into another tree.
+re-include takes when the file is a symlink into another tree. `/backups/` is
+hidden by the root `/*` rule and must stay that way: it holds repository history
+whose contents were deliberately removed from the tracked set, so re-including it
+publishes them in the next commit.
 
 ## Commits
 
