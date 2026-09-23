@@ -1,12 +1,12 @@
 [sendemail]
-	from = Tinoy Thomas <yo@t69.dev>
+	from = tinoy thomas <yo@t69.dev>
 	smtpServer = smtp.protonmail.ch
 	smtpServerPort = 587
 	smtpEncryption = tls
 	smtpUser = yo@t69.dev
 [user]
 	email = yo@t69.dev
-	name = Tinoy Thomas
+	name = tinoy thomas
 [credential "https://github.com"]
 	helper = 
 	helper = !/usr/bin/gh auth git-credential
