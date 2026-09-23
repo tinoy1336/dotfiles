@@ -1,4 +1,4 @@
-# Three checks over the tracked set. Each job runs a script from .github/scripts,
+# Four checks over the tracked set. Each job runs a script from .github/scripts,
 # so the same run is available locally before a commit.
 #
 #   shellcheck          every tracked shell script, with the findings the tree
@@ -7,6 +7,8 @@
 #                       a leak belongs at push time, not in a reader's browser
 #   restore-rehearsal   a bare clone into a scratch HOME, then verification that
 #                       the committed set actually rebuilds a home directory
+#   installer           the installer run into a scratch home: what it wrote,
+#                       what a second run does, and what it refuses to touch
 #
 # The tool versions are pinned and their tarballs are checked against a digest:
 # the local run and the CI run then lint the same scripts with the same shellcheck.
@@ -62,3 +64,11 @@ jobs:
           fetch-depth: 0
       - name: Rehearse a restore into a scratch home
         run: .github/scripts/restore-rehearsal.sh .
+
+  installer:
+    name: installer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install into a scratch home and check what the installer promises
+        run: .github/scripts/installer-smoke.sh .
