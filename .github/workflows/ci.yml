@@ -1,0 +1,64 @@
+# Three checks over the tracked set. Each job runs a script from .github/scripts,
+# so the same run is available locally before a commit.
+#
+#   shellcheck          every tracked shell script, with the findings the tree
+#                       already carries recorded in shellcheck-allowlist.txt
+#   secrets             gitleaks over the tracked files and the whole history —
+#                       a leak belongs at push time, not in a reader's browser
+#   restore-rehearsal   a bare clone into a scratch HOME, then verification that
+#                       the committed set actually rebuilds a home directory
+#
+# The tool versions are pinned and their tarballs are checked against a digest:
+# the local run and the CI run then lint the same scripts with the same shellcheck.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install shellcheck 0.10.0
+        run: |
+          curl -sSL -o /tmp/shellcheck.tar.xz \
+            https://github.com/koalaman/shellcheck/releases/download/v0.10.0/shellcheck-v0.10.0.linux.x86_64.tar.xz
+          echo "6c881ab0698e4e6ea235245f22832860544f17ba386442fe7e9d629f8cbedf87  /tmp/shellcheck.tar.xz" | sha256sum -c -
+          tar -xJf /tmp/shellcheck.tar.xz -C /tmp
+      - name: Lint the tracked shell scripts
+        run: .github/scripts/shellcheck.sh /tmp/shellcheck-v0.10.0/shellcheck
+
+  secrets:
+    name: secrets
+    runs-on: ubuntu-latest
+    steps:
+      # The full history: a file deleted in a later commit is still readable in
+      # the one that added it, and gitleaks only sees what the clone carries.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Install gitleaks 8.28.0
+        run: |
+          curl -sSL -o /tmp/gitleaks.tar.gz \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.28.0/gitleaks_8.28.0_linux_x64.tar.gz
+          echo "a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb  /tmp/gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+      - name: Scan the repository and its history
+        run: .github/scripts/secrets-scan.sh /tmp/gitleaks
+
+  restore-rehearsal:
+    name: restore-rehearsal
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Rehearse a restore into a scratch home
+        run: .github/scripts/restore-rehearsal.sh .

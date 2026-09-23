@@ -90,7 +90,7 @@ apply() {
     fi
     local pick="${walls[$((RANDOM % ${#walls[@]}))]}"
     apply_file "$pick"
-    cp "$pick" /etc/greetd/ags-greeter/wallpaper.png 2>/dev/null || true
+    cp "$pick" /etc/greetd/tinshell-greeter/wallpaper.png 2>/dev/null || true
 }
 
 # Login handoff: apply the SAME image the greeter showed (the synced greeter
@@ -98,7 +98,7 @@ apply() {
 # a visible swap to a random image. The 10-min rotation timer randomizes
 # later. The cp-back is best-effort parity (the file is already in place).
 apply_greeter() {
-    local pick="/etc/greetd/ags-greeter/wallpaper.png"
+    local pick="/etc/greetd/tinshell-greeter/wallpaper.png"
     [ -f "$pick" ] || die "greeter wallpaper missing: $pick"
     # Instant (no fade) + fast retry: the login handoff must paint the SAME
     # wallpaper the greeter showed as quickly as possible (the daemon may
@@ -106,7 +106,7 @@ apply_greeter() {
     for _ in $(seq 1 50); do
         if awww img "$pick" --transition-type none 2>/dev/null; then
             log "Applied: $pick"
-            cp "$pick" /etc/greetd/ags-greeter/wallpaper.png 2>/dev/null || true
+            cp "$pick" /etc/greetd/tinshell-greeter/wallpaper.png 2>/dev/null || true
             return 0
         fi
         sleep 0.2

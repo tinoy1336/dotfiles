@@ -43,6 +43,12 @@
 # uses, so reading a credential back stays a deliberate act rather than the default of a
 # command whose output tends to get pasted somewhere.
 #
+# An ARGUMENT the script cannot honour follows the same rule: an unrecognised flag or
+# subcommand exits 2 and prints the usage on stderr, and a non-flag argument is reported by
+# fingerprint and length instead of being echoed. The positions that take a subcommand or a
+# key NAME can also receive a pasted VALUE, and an echo there would put it in a terminal,
+# a shell history and whatever log collected them.
+#
 # `cli-keys watch` is what refreshes without a session: it holds the NetworkManager
 # monitor open for the whole login session and reconciles on every connectivity
 # change, so a machine that comes back online is refreshed by itself. It runs under
@@ -103,6 +109,9 @@
 #        cli-keys cache-path  print the cache path (the ONE definition)
 #        cli-keys watch       reconcile on every connectivity change, plus a sweep
 #        cli-keys status      report cache path, mode, age, state and per-key lengths
+#        cli-keys <anything else>
+#                            exit 2 with this usage on stderr; a non-flag argument is
+#                                 named by fingerprint and length, never echoed
 
 set -uo pipefail
 
@@ -173,6 +182,15 @@ cleanup() { [ -n "$REFS" ] && rm -f "$REFS"; }
 trap cleanup EXIT
 
 now_epoch() { date +%s; }
+
+# fingerprint <value> — the ONE spelling of a value's masked form: a truncated sha256 of
+# its bytes, with the length at the call site. It is the same for the same credential, moves
+# when the credential does, and cannot be turned back into it. The `key` report and the
+# argument diagnostics both read it here, so a second masking rule cannot drift from this
+# one.
+fingerprint() {
+  printf 'sha256:%s…' "$(printf '%s' "$1" | sha256sum | cut -c1-12)"
+}
 
 cache_field() {
   # cache_field <jq-path> — empty when the cache is absent, unreadable or stale-shaped.
@@ -538,7 +556,8 @@ watch() {
 # never grow into a general environment printer. The default output carries NO value —
 # name, source and a short sha256 prefix with the length — so the command stays safe in
 # front of a log; the value itself needs the explicit --reveal, which is the form the
-# models.json command form uses.
+# models.json command form uses. An argument that is not a known NAME is reported by
+# fingerprint and length as well: a value pasted into this position is never echoed.
 key() {
   local name="" reveal=0 arg known="" from_env="" value="" source=""
   for arg in "$@"; do
@@ -555,7 +574,11 @@ key() {
     [ "$known" = "$name" ] && break
   done
   if [ "$known" != "$name" ]; then
-    echo "cli-keys: unknown key: ${name:-<none>}" >&2
+    if [ -z "$name" ]; then
+      echo "cli-keys: unknown key: <none given>" >&2
+    else
+      printf 'cli-keys: unknown key: not echoed — %s, %s chars\n' "$(fingerprint "$name")" "${#name}" >&2
+    fi
     echo "cli-keys: known keys: ${KEY_NAMES[*]}" >&2
     exit 2
   fi
@@ -586,7 +609,7 @@ key() {
   # value goes into sha256sum's stdin, so it is never an argument and never printed.
   printf 'key:    %s\n' "$name"
   printf 'source: %s\n' "$source"
-  printf 'masked: sha256:%s  length: %s chars\n' "$(printf '%s' "$value" | sha256sum | cut -c1-12)" "${#value}"
+  printf 'masked: %s  length: %s chars\n' "$(fingerprint "$value")" "${#value}"
 }
 
 status() {
@@ -622,18 +645,39 @@ status() {
 }
 
 usage() {
-  echo "usage: cli-keys [ensure [--json] [--force] | status | key <name> [--reveal] | cache-path | watch]"
-  echo "       key reports the credential's name, source, sha256 prefix and length and"
-  echo "       prints no value; --reveal prints the value itself to stdout, for"
-  echo "       models.json's command form. The vault fetch writes no value to stdout."
+  echo "usage: cli-keys [ensure [--json] [--force] | status | key <NAME> [--reveal] | cache-path | watch]"
+  echo "       ensure  refresh when the cache is stale and the machine is online (the default);"
+  echo "               --force fetches whatever the cache's age; --json answers one outcome object"
+  echo "       key     report one credential WITHOUT its value — name, source, sha256 prefix"
+  echo "               and length; --reveal is the ONE route to the value itself, the form"
+  echo "               models.json's command value uses"
+  echo "       status  cache path, mode, age, state and per-key lengths — no value"
+  echo "       watch   reconcile on every connectivity change, plus a sweep"
+  echo "       cache-path  print the cache path (the ONE definition)"
+  echo "       An unrecognised flag or subcommand exits 2 with this usage on stderr. Argument"
+  echo "       text is never echoed: a non-flag argument is named by fingerprint and length."
 }
 
-# usage_error <argument> — the ONE exit path for an argument this script cannot honour:
-# the offending token, then the usage line, then a non-zero status. An argument that is
-# quietly discarded is how `ensure --force` came to report success while fetching
-# nothing, so no branch below drops one.
+# usage_error <argument> — the ONE exit path for an argument this script cannot honour: a
+# line naming it, the usage line, then a non-zero status. An argument that is quietly
+# discarded is how `ensure --force` came to report success while fetching nothing, so no
+# branch below drops one.
+#
+# The token is reported by SHAPE unless it is a flag: the positions that take a subcommand
+# or a key NAME can also receive a pasted credential VALUE, and echoing it would put the
+# value in the terminal, the shell history and every log that collected them. A flag is
+# syntax and is echoed, cut at any `=` because a flag can carry a value after one.
 usage_error() {
-  echo "cli-keys: unknown argument: $1" >&2
+  case "$1" in
+    "") printf 'cli-keys: empty argument\n' >&2 ;;
+    -*)
+      case "$1" in
+        *=*) printf 'cli-keys: unknown argument: %s=…\n' "${1%%=*}" >&2 ;;
+        *) printf 'cli-keys: unknown argument: %s\n' "$1" >&2 ;;
+      esac
+      ;;
+    *) printf 'cli-keys: unknown argument: not echoed — %s, %s chars\n' "$(fingerprint "$1")" "${#1}" >&2 ;;
+  esac
   usage >&2
   exit 2
 }
@@ -644,7 +688,7 @@ no_extra_args() {
   [ "$#" -eq 0 ] || usage_error "$1"
 }
 
-case "${1:-ensure}" in
+case "${1-ensure}" in
   ensure)
     shift
     json=0

@@ -8,7 +8,7 @@
 set -eu
 
 HANDOFF="/home/tinoy/handoffs/2026-09-09-ags-polish-handoff.md"
-CWD="/home/tinoy/.config/ags"
+CWD="/home/tinoy/dev/tinshell"
 MODEL="deepseek-flash"
 
 # The '@<path>' form is what the spawned pi command carries; matching the bare

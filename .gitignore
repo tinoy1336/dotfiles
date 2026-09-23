@@ -2,12 +2,9 @@
 # $HOME dotfiles repo — work tree /home/tinoy, git metadata ~/.dotfiles.git
 #
 # WHITELIST STYLE. Nothing in $HOME is tracked unless it is re-included below.
-# Written 2026-09-15; re-verified 2026-09-23 against the live tree. The plan it
-# belongs to is ~/dev/plans/migration-plan.md, section 5. This file is
-# protective: nothing is staged, no repository is initialised by it. Delete it
-# if the approach is rejected.
+# The file is protective: nothing is staged, no repository is initialised by it.
 #
-# Verify before the first `git add` (plan section 7):
+# Verify before a stage:
 #   dotfiles check-ignore -v <path>   # names the pattern hiding a path
 #   dotfiles add -n -A | head         # dry run: what would actually be added
 #
@@ -28,9 +25,16 @@
 !/.tmux.conf
 !/.gitconfig
 # this file: without it a clone or a restore has no ignore rule at all, and the
-# next blanket `git add` there is the unprotected sweep section 7 forbids
+# next blanket `git add` there is the unprotected sweep this file's whitelist
+# exists to prevent
 !/.gitignore
 !/.gtkrc-2.0
+# the repository's own surface: the CI workflows and the scripts they run, the
+# README, the contribution notes and the licence
+!/.github/
+!/README.md
+!/CONTRIBUTING.md
+!/LICENSE
 # NOT re-included, so ignored by /*: .zsh_history .bash_history
 # .python_history .node_repl_history .viminfo .wget-hsts .pulse-cookie
 # .zcompdump-*  (histories and completion dumps)
@@ -39,7 +43,7 @@
 !/.config/
 /.config/*
 # the extracted project's LIVE CONFIG — nine flat files, the machine's values.
-# The project's code lives in ~/dev/tinshell (Part I) and is not re-included.
+# The project's code lives in ~/dev/tinshell and is not re-included.
 !/.config/tinshell/
 # hand-written tool and desktop config
 !/.config/hypr/
@@ -194,8 +198,8 @@ __pycache__/
 /.mp3tag/
 /.hplip/
 
-# 6e. the project's vendored and generated trees are its own repository's business
-# (section 4.5). They live under ~/dev/tinshell, which the /dev/ rule ignores. These two
+# 6e. the project's vendored and generated trees are its own repository's business.
+# They live under ~/dev/tinshell, which the /dev/ rule ignores. These two
 # are different directories that still exist:
 /.config/ags-backup-popover/
 /.config/ags-archive-internal-panel/
@@ -228,8 +232,8 @@ __pycache__/
 /.config/trashrc
 /.config/baloofilerc
 # note CONTENT (a sticky-notes app's stored text and window geometry), not tool
-# configuration. Ruled out of scope with ~/.local/share/notes/ in plan section
-# 3.7; to promote both, add the re-include chain named there
+# configuration. Ruled out of scope with ~/.local/share/notes/; to promote both,
+# add the re-include chain for each.
 /.config/sticky/
 # enable-symlinks recreated by `systemctl --user enable`, with absolute targets
 # outside the work tree (one points into /usr/lib/systemd/user)

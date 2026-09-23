@@ -1,0 +1,107 @@
+# Contributing
+
+This repository is one machine's configuration. Most changes to it are its
+author's own; what follows is what a change from outside looks like, and what a
+change has to satisfy either way.
+
+## The workflow
+
+There is no `npm install` and no build. Everything is a file that an application
+on this machine reads, edited in place and committed through the wrapper, which
+pairs the bare metadata directory with `$HOME`:
+
+```sh
+dotfiles status                   # what differs from the recorded set
+dotfiles add .config/kitty/kitty.conf
+dotfiles commit -m "kitty: raise the window padding"
+dotfiles push
+```
+
+The wrapper refuses the blanket forms of `checkout`, `restore`, `reset --hard`
+and `clean`, because the work tree is the running system. A restore is the pair it
+allows — `dotfiles read-tree HEAD` to build the index from the commit, then
+`dotfiles checkout-index -a` to write the tracked set, naming any file already in
+the way rather than overwriting it. `DOTFILES_ALLOW_DESTRUCTIVE=1` is the escape
+hatch for the forms that do overwrite.
+
+### The wrapper acts on the live home directory
+
+The wrapper sets `GIT_DIR="$HOME/.dotfiles.git"` and `GIT_WORK_TREE="$HOME"`
+itself, whatever the environment says. That is what makes it usable at all — git
+cannot be aimed at that pair by accident — and it is also the hazard: any command
+run through the wrapper that writes the work tree writes the home directory you
+are logged into. `checkout`, `reset`, `clean` and `restore` discard uncommitted
+work, and the work tree is the whole home directory rather than one project, so
+the loss is not confined to the file being worked on. The guards above lower the
+odds of that happening by accident; they do not make a blanket form safe.
+
+Consequences worth knowing before the first command:
+
+- Use `git` directly, with `GIT_DIR` and `GIT_WORK_TREE` set to a scratch pair,
+  for anything that has to exercise the work tree — a rehearsal, a test, a
+  scripted restore. `.github/scripts/restore-rehearsal.sh` does exactly that, and
+  refuses to run unless the wrapper it drives resolves its git directory inside
+  the scratch tree.
+- Anything that runs a variant of the wrapper — a copy, a function that calls it,
+  an env override — still ends up at the real `$HOME`. Overriding the environment
+  does not redirect it; only a wrapper whose own home is the scratch tree does.
+- `dotfiles add` and `dotfiles commit` are the safe pair, and the only wrapper
+  calls a change to this repository needs.
+
+## Adding a file
+
+`.gitignore` is a whitelist. Every entry at the home root is ignored unless a `!`
+line re-includes it, so a new file needs a line of its own, for the narrowest path
+that carries the change. Never add `!` for a cache, an application profile, a
+credential store or a transcript directory — the hard-deny section exists for
+exactly those, and the `.local/bin/tinshell-route` case shows the shape a
+re-include takes when the file is a symlink into another tree.
+
+## Commits
+
+Conventional Commits, one subject line naming the area, and a body that says why
+in terms of the configuration rather than what the diff does:
+
+```text
+fix(hypr): stop the idle timer locking the screen on a lap cat
+
+The lock fires on the keyboard-idle timer while the lid is closed and a
+Bluetooth controller is waking the session…
+```
+
+House style for anything a reader sees — comments, README text, commit bodies:
+technical fact only. No dates, no notes about how a value was discovered, no
+references to a plan document. A comment that explains a constraint is worth
+its lines; a comment that records the history of the change is not.
+
+## Before pushing
+
+Run what CI runs. Each job is a script, so a green local run and a green CI run
+are the same run:
+
+```sh
+.github/scripts/shellcheck.sh
+.github/scripts/secrets-scan.sh
+.github/scripts/restore-rehearsal.sh .
+```
+
+`shellcheck.sh` lints every shell script the repository tracks. A finding fails
+unless the same file and check appear in `.github/scripts/shellcheck-allowlist.txt`,
+which records what the tree already has; anything else has to be fixed rather
+than added to that file.
+
+`restore-rehearsal.sh` clones the repository bare into a scratch directory, restores
+the tracked set into a scratch `HOME` through a wrapper whose own home is that
+directory, and verifies the result. It is the check that catches a file that was
+added to the index but can no longer be produced from a clone. Run it with the
+repository as an argument — `"$HOME/.dotfiles.git"` here, `.` in a checkout.
+
+## Adapting the repository to another machine
+
+The README's adaptation list is the short version. In practice: substitute the
+home directory and user name, drop the units that exec scripts under
+`~/dev/tinshell`, replace `.config/hosts/<machine>/` with one declaration for the
+new host, and delete the device rules that name hardware the new machine does not
+have. Keep the whitelist direction of `.gitignore` and the wrapper — both exist
+because the work tree is a live system, and both stop working the moment the git
+directory moves inside it.

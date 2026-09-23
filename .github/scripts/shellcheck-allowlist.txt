@@ -1,0 +1,14 @@
+# Findings the tracked tree already carries, one `path:check` per line. A run of
+# shellcheck.sh fails on any finding that is not recorded here, so this file is
+# the boundary between "known" and "new" rather than a blanket suppression:
+# delete a line when its check is fixed, and never add one for a script that was
+# written after the check existed.
+#
+# Two of these sit in files this change did not touch, and the rest are warnings
+# that predate the CI job.
+.local/bin/cli-keys:SC2174
+.local/bin/fix-asus-kbd:SC2318
+.local/bin/fix-asus-kbd:SC2034
+.local/bin/prompt:SC2034
+.local/bin/sudo:SC2199
+.local/bin/tinshell-handoff-resume.sh:SC2155
