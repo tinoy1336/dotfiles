@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # sudo-approve askpass bridge (sudo -A).
 #
-# Prefers the promptd window (ags/promptd — themed, centred, unified with
+# Prefers the promptd window (tinshell/promptd — themed, centred, unified with
 # the approval flow); falls back to the yad dialog when promptd is
 # unreachable. The password flows dialog -> stdout -> sudo; the requesting
 # process never sees it.

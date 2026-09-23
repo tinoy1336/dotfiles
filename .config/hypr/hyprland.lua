@@ -8,7 +8,6 @@ local terminalFloat = "kitty --single-instance --instance-group=float --class=ki
 local mainBrowser = "firefox"
 local altBrowser = "chromium"
 local musicApp = "youtube-music"
-local bar = "systemctl --user start ags-shell"
 
 local volumeStep = "5%"
 local brightnessStep = "5%"
@@ -99,17 +98,15 @@ hl.on("hyprland.start", function()
     -- possible (avoids the near-black default background flash between DRM
     -- takeover and the wallpaper layer mapping).
     hl.exec_cmd("sh -c '$HOME/.local/bin/wallpapers-sync apply-greeter'")
-    -- AGS shell (ags-shell.service) — ALL apps in ONE instance (bus
+    -- The shell (tinshell-shell.service) — ALL apps in ONE instance (bus
     -- io.Astal.shell): the five surfaces (dock, launcher, notifications,
     -- keyboard, clipboard) + promptd + portal + polkit + the on-demand
     -- apps (notes, files, annotate, media). Belt-and-suspenders autostart
-    -- alongside the graphical-session target (`bar` above starts the same
-    -- unit). The per-app units are DEV mode ONLY — never start them here,
+    -- The per-app units are DEV mode ONLY — never start them here,
     -- or a stray island runs beside the shell. The notifications surface is
     -- the shell's — the daemon claims org.freedesktop.Notifications, so the
     -- shell is its only owner, and the notifications island is DEV-only and
     -- never autostarted.
-    hl.exec_cmd(bar)
     -- Auto-rotate: rotate eDP-1 + touch input when in tablet mode
     -- (auto-rotate.service — accelerometer orientation via iio-sensor-proxy
     -- + the SW_TABLET_MODE switch; applies rotation through hyprctl eval).
@@ -171,12 +168,12 @@ hl.bind(mod .. " + SHIFT + N", hl.dsp.exec_cmd("/home/tinoy/dev/tinshell/apps/no
 -- absolute-path rule).
 hl.bind(mod .. " + period", hl.dsp.exec_cmd("/home/tinoy/dev/tinshell/common/shell/ensure-launcher-emoji.sh"))
 
--- AGS shell runs as a systemd user service (ags-shell.service, Restart=on-
+-- The shell runs as a systemd user service (tinshell-shell.service, Restart=on-
 -- failure) so it auto-relaunches after any crash. Process control goes
--- through systemctl: restart = systemctl --user restart ags-shell. systemd
+-- through systemctl: restart = systemctl --user restart tinshell-shell. systemd
 -- SIGTERMs the old instance (the app's shutdown handler finalizes any
 -- in-flight recording), then starts the new one; the service's ExecStartPre
--- (ags-bus-wait.sh shell) absorbs the bus-name release, so no manual sleep is
+-- (tinshell-bus-wait.sh shell) absorbs the bus-name release, so no manual sleep is
 -- needed. shell registers its own bus (io.Astal.shell, instance "shell"); it
 -- does NOT occupy the bare default "ags" name (multi-app home). The
 -- per-app dev units (promptd/portal/polkit) are NEVER autostarted.
