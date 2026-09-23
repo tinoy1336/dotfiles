@@ -26,8 +26,12 @@
 
 set -eu
 
+# A relative path named as the repository would be resolved against an inherited
+# CDPATH otherwise.
+unset CDPATH
+
 src=${1:-.}
-src=$(CDPATH= cd -- "$src" && pwd)
+src=$(cd -- "$src" && pwd)
 
 # With the bare layout the work tree is not a repository by itself, so a caller
 # standing in it names the metadata instead: the argument wins when it is a
@@ -35,7 +39,7 @@ src=$(CDPATH= cd -- "$src" && pwd)
 if env -u GIT_DIR -u GIT_WORK_TREE git -C "$src" rev-parse --git-dir >/dev/null 2>&1; then
   :
 elif [ -n "${GIT_DIR:-}" ] && git --git-dir="$GIT_DIR" rev-parse HEAD >/dev/null 2>&1; then
-  src=$(CDPATH= cd -- "$GIT_DIR" && pwd)
+  src=$(cd -- "$GIT_DIR" && pwd)
 else
   echo "restore-rehearsal: $src is not a git repository — name one, for example $HOME/.dotfiles.git" >&2
   exit 2

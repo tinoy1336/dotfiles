@@ -1,5 +1,5 @@
 #!/bin/sh
-# shellcheck — lint every shell script this repository tracks.
+# Lint every shell script this repository tracks, with shellcheck.
 #
 # The set comes from git rather than from a list here, so a script added to the
 # repository is linted without editing this file. A finding fails the run unless
@@ -17,8 +17,12 @@
 
 set -eu
 
+# A relative path named on the command line would be resolved against an
+# inherited CDPATH otherwise.
+unset CDPATH
+
 check=${1:-shellcheck}
-here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+here=$(cd -- "$(dirname -- "$0")" && pwd)
 allow="$here/shellcheck-allowlist.txt"
 
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
@@ -48,7 +52,9 @@ done > "$list"
 
 # Warnings and errors both count; info and style notes do not. The command exits
 # non-zero as soon as it reports anything, which is what the parse below reads.
-# shellcheck disable=SC2046 # no tracked path contains whitespace
+# The directive below is the one suppression in this file, and it carries no
+# trailing text: a comment after a directive is not part of it.
+# shellcheck disable=SC2046
 "$check" --format=gcc --severity=warning $(cat "$list") > "$report" 2>&1 || true
 
 # gcc format is `path:line:col: severity: message [SCnnnn]`.
