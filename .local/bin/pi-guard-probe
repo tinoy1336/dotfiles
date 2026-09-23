@@ -1,0 +1,137 @@
+#!/usr/bin/env node
+/**
+ * pi-guard-probe — regression fixtures for command-guard's block rules.
+ *
+ * command-guard decides by inspecting a command string, so a new command shape
+ * can slip through silently: `timeout 300 npx tsc` was allowed for weeks because
+ * the rule skipped the word `timeout` but not the duration that follows it.
+ * This prober runs a fixture list through the real `inspect()`, and a second
+ * list through `inspectInjection()`, reporting any verdict that changed, in
+ * either direction.
+ *
+ * Usage: pi-guard-probe [--verbose]
+ * Exit:  0 = every fixture matches (known holes may still be open),
+ *        1 = a fixture's verdict changed, 2 = the probe itself failed.
+ *
+ * `known: true` marks a shape that is currently WRONG but accepted — a hole we
+ * decided not to close yet. It does not fail the run; if it ever starts
+ * blocking, the probe says so and you promote the fixture.
+ */
+import { readFileSync, writeFileSync, unlinkSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+const SRC = join(homedir(), ".pi/agent/extensions/command-guard.ts");
+const TMP = "/tmp/pi-guard-probe-guard.ts";
+
+// Each fixture: [command, wantBlock, note, known?]
+const FIXTURES = [
+  ["cat /tmp/x.log", true, "R1 file body via cat"],
+  ["sed -n 1,80p apps/dock/config.ts", true, "R1 line range via sed"],
+  ["head -40 /usr/bin/ags", true, "R1 head"],
+  ["tail -n 30 /tmp/tinshell-crashes.log", true, "R1 tail"],
+  ["grep -rn foo /home/x/y.ts", true, "R1 grep explicit path"],
+  ["rg -n pattern apps/dock", true, "R1 rg explicit path"],
+  ["grep -rIl pattern .", false, "listing mode (-l prints file names, not content)"],
+  ["npx tsc --noEmit", true, "R2 tsc via npx"],
+  ["npm run check:schemas", true, "R2 npm run"],
+  ["ags bundle --help", true, "R2 ags bundle"],
+  ["make", true, "R2 make"],
+  ["tsc --noEmit", true, "R2 bare tsc"],
+  ["ls -la ~/.config/ags", false, "listing is allowed"],
+  ["cd /tmp && ls -la", false, "cd prefix then listing"],
+  ["ags -i shell request \"dock ping\"", false, "request surface"],
+  ["pgrep -af tinshell-shell", false, "process listing"],
+  ["git status --short", false, "vcs state"],
+  ["tail -f /tmp/ags-debug.log", false, "follow mode"],
+  ["rg --files apps/dock", false, "listing mode"],
+  ["cat", false, "cat with no operand reads stdin"],
+  ["timeout 300 npx --no-install biome check apps/dock", true, "R2 through timeout (DURATION operand)"],
+  ["timeout 30 tsc --noEmit", true, "R2 through timeout, bare checker"],
+  ["timeout -k 5 300 npx tsc --noEmit", true, "R2 through timeout WITH options"],
+  ["env FOO=1 npx tsc --noEmit", true, "R2 through env (VAR=value operand)"],
+  ["env -i npx tsc --noEmit", true, "R2 through env WITH option"],
+  ["timeout 300 ls -la", false, "timeout does not make a safe command unsafe"],
+];
+
+let mod;
+try {
+  // command-guard value-imports the pi SDK, which only resolves inside pi itself;
+  // strip that import so the pure helpers can be exercised standalone. The temp
+  // copy lives outside the extensions dir, so the relative lib import is
+  // rewritten to an absolute specifier.
+  const src = readFileSync(SRC, "utf8")
+    .replace(/^import type \{ ExtensionAPI \}.*\n/m, "")
+    .replace(/^import \{ isToolCallEventType \}.*\n/m, "")
+    .replace(/from "\.\/lib\/hook-log\.ts"/, `from ${JSON.stringify(join(homedir(), ".pi/agent/extensions/lib/hook-log.ts"))}`);
+  writeFileSync(TMP, src);
+  mod = await import("file://" + TMP + "?t=" + Date.now());
+} catch (err) {
+  console.error("probe failed to load command-guard:", err.message);
+  process.exit(2);
+}
+
+// RAW-INPUT fixtures: `[text, wantBlock, note]`. Synthetic input reaches the
+// device through the `inject` wrapper, which pairs every press with a release.
+const INJECTION_FIXTURES = [
+  ["ydotool click 0xC0", true, "raw click"],
+  ["ydotool mousemove -a 700 500", true, "raw absolute move"],
+  ["rm -f /tmp/x; ydotool key 28:1", true, "raw use after a separator"],
+  ["/usr/bin/ydotool click 0x80", true, "absolute path to the binary"],
+  ["node -e \"require('child_process').execSync('ydotool click 0x40')\"", true, "execSync inside sandboxed code"],
+  ["execSync(`ydotool click 0x40`)", true, "template-literal exec in ctx code"],
+  ["echo \"raw ydotool is blocked\"", false, "prose mention of the name"],
+  ["command -v ydotool", false, "presence probe"],
+  ["pkill -f ydotool", false, "process cleanup"],
+  ["pgrep -af ydotoold", false, "daemon probe"],
+  ["ydotoold", false, "the daemon itself is not blocked"],
+  ["inject click left --at 1318 28", false, "the sanctioned wrapper"],
+  ["ydotool click 0x40 # raw-ydotool-ok", false, "explicit escape marker"],
+  ["ydotool --help", false, "usage read, no injection"],
+  ["YDOTOOL_SOCKET=/run/x ydotool click 0xC0", true, "env-prefixed invocation"],
+];
+
+const bashVerdict = (cmd) => {
+  for (const seg of mod.segments(cmd)) if (mod.inspect(seg)) return true;
+  return false;
+};
+
+const injectionVerdict = (text) => mod.inspectInjection(text) !== null;
+
+const verbose = process.argv.includes("--verbose");
+
+function runTable(label, fixtures, verdict) {
+  console.log(`\n${label}`);
+  let mismatchCount = 0;
+  const promoted = [];
+
+  for (const [cmd, want, note, known] of fixtures) {
+    const got = verdict(cmd);
+    if (got === want) {
+      if (verbose) console.log(`  ok       ${got ? "block" : "allow"}  ${note}`);
+      continue;
+    }
+    if (known && got === true) {
+      promoted.push(`${note}: now blocked — drop known:true`);
+      continue;
+    }
+    if (known && got === false) {
+      console.log(`  KNOWN-HOLE  allow  ${note}  <= ${cmd}`);
+      continue;
+    }
+    mismatchCount++;
+    console.log(`  MISMATCH    ${got ? "block" : "allow"} (want ${want ? "block" : "allow"})  ${note}  <= ${cmd}`);
+  }
+
+  for (const p of promoted) console.log(`  NOTE        ${p}`);
+  return mismatchCount;
+}
+
+const mismatches =
+  runTable("R1/R2 (bash)", FIXTURES, bashVerdict) +
+  runTable("RAW-INPUT (synthetic input)", INJECTION_FIXTURES, injectionVerdict);
+
+try { unlinkSync(TMP); } catch { /* best effort */ }
+
+console.log(mismatches ? `\n${mismatches} mismatch(es)` : "\nall fixtures match");
+process.exit(mismatches ? 1 : 0);

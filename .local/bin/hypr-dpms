@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# hypr-dpms — the DPMS command for hypridle.
+#
+# Hyprland 0.56 evaluates `hyprctl dispatch` arguments as Lua, so the retired
+# conf-syntax form (`hyprctl dispatch dpms on`) dies with
+# `')' expected near 'on'` and the idle listener's screen-off / the
+# post-resume screen-on silently never happened. The Lua dispatcher takes a
+# TABLE — `hl.dsp.dpms({action = "on"})`, with an optional `monitor` key — and
+# hypridle.conf is not a shell, so the quoting lives here instead of in the
+# config line.
+set -eu
+
+case "${1:-toggle}" in
+  on | off | toggle)
+    exec hyprctl dispatch "hl.dsp.dpms({action = \"$1\"})"
+    ;;
+  *)
+    echo "usage: hypr-dpms [on|off|toggle]" >&2
+    exit 2
+    ;;
+esac

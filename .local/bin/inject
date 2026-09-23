@@ -1,0 +1,346 @@
+#!/usr/bin/env bash
+# inject — sanctioned synthetic input for this machine (mouse buttons, motion,
+# drags, typing, key sequences) on top of ydotool.
+#
+# WHY THIS EXISTS: a raw `ydotool click 0x40` presses the left button and never
+# releases it. BTN_LEFT then stays held on the ydotoold uinput device, the seat
+# believes button 1 is already down, and every REAL left click on the machine is
+# ignored until someone sends the matching release. This wrapper never leaks
+# that state:
+#   - preflight: anything already held on the virtual device is released first
+#     (self-repair of a leaked raw invocation) and reported;
+#   - every action leaves nothing held: presses are paired inside the action,
+#     and an EXIT/INT/TERM trap releases the device on any exit path, including
+#     a crash or a kill that the action itself cannot catch;
+#   - `key` accepts only BALANCED down/up sequences (equal counts), so a combo
+#     like ctrl+c works but a dangling hold cannot be expressed.
+#
+# Raw `ydotool` invocations are blocked for the agent by the command-guard
+# extension, which redirects here. Run `inject --help` for the action list.
+
+set -uo pipefail
+
+SOCKET_HINT="a missing socket means ydotoold is not running: start it with 'ydotoold' (or systemctl --user start ydotool)"
+TOLERANCE=3 # px, absolute-move verification
+touched=0   # set once this run has pressed anything
+
+die() { printf 'inject: %s\n' "$1" >&2; exit "${2:-1}"; }
+
+# ── device state ────────────────────────────────────────────────────────────
+# Emits "<event-node>" then one "held <code> <name>" line per pressed button or
+# key. Reads the kernel key bitmap (EVIOCGKEY) so it reflects the DEVICE, not
+# what any tool believes. The device is found by name, never by a fixed path.
+read_state() {
+  python3 - <<'PY'
+import array, fcntl, glob, os, re, sys
+
+NAMES = {272: "BTN_LEFT", 273: "BTN_RIGHT", 274: "BTN_MIDDLE", 275: "BTN_SIDE",
+         276: "BTN_EXTRA", 277: "BTN_FORWARD", 278: "BTN_BACK", 279: "BTN_TASK",
+         330: "BTN_TOUCH", 1: "KEY_ESC", 28: "KEY_ENTER", 29: "KEY_LEFTCTRL",
+         42: "KEY_LEFTSHIFT", 54: "KEY_RIGHTSHIFT", 56: "KEY_LEFTALT",
+         57: "KEY_SPACE", 97: "KEY_RIGHTCTRL", 100: "KEY_RIGHTALT",
+         125: "KEY_LEFTMETA", 126: "KEY_RIGHTMETA"}
+
+def device():
+    for p in glob.glob("/proc/bus/input/devices"):
+        blocks = open(p, errors="replace").read().split("\n\n")
+        for b in blocks:
+            if 'Name="ydotoold virtual device"' not in b:
+                continue
+            m = re.search(r"event\d+", b)
+            if m:
+                return "/dev/input/" + m.group(0)
+    return None
+
+def held(path):
+    EVIOCGKEY = lambda l: 0x80004518 | (l << 16)
+    fd = open(path, "rb")
+    buf = array.array("B", [0] * 96)
+    fcntl.ioctl(fd, EVIOCGKEY(96), buf, True)
+    bits = buf.tobytes()
+    return [c for c in range(0, 768) if (bits[c // 8] >> (c % 8)) & 1]
+
+dev = device()
+if not dev:
+    print("NODEV")
+    sys.exit(0)
+print(dev)
+for code in held(dev):
+    print("held %d %s" % (code, NAMES.get(code, "code%d" % code)))
+PY
+}
+
+# Reads the state once and stores: DEV (node), HELD (space-separated codes).
+load_state() {
+  local state
+  state="$(read_state)"
+  if [ "$state" = "NODEV" ]; then
+    die "ydotoold virtual device not found — $SOCKET_HINT" 3
+  fi
+  DEV="$(printf '%s\n' "$state" | sed -n 1p)"
+  HELD="$(printf '%s\n' "$state" | awk '/^held /{printf "%s ", $2}')"
+}
+
+# ydotool button value for a BTN_* code: the low bits name the button, the high
+# bits the transition (0x40 down, 0x80 up).
+button_value() { # $1 = code, $2 = down|up
+  local idx=$(( $1 - 272 ))
+  [ "$idx" -ge 0 ] && [ "$idx" -le 7 ] || die "unsupported button code $1 (BTN_LEFT..BTN_TASK = 272..279)" 2
+  if [ "$2" = down ]; then printf '0x%X' $((0x40 | idx)); else printf '0x%X' $((0x80 | idx)); fi
+}
+
+button_name() {
+  case "$1" in
+    left|0x00|00|1|0) echo 272 ;;
+    right|0x01|01|2|3) echo 273 ;;
+    middle|0x02|02|4) echo 274 ;;
+    side|0x03) echo 275 ;;
+    extra|0x04) echo 276 ;;
+    forward|0x05) echo 277 ;;
+    back|0x06) echo 278 ;;
+    task|0x07) echo 279 ;;
+    *) die "unknown button '$1' (left|right|middle|side|extra|forward|back|task)" 2 ;;
+  esac
+}
+
+# ── release ─────────────────────────────────────────────────────────────────
+# Releases everything the device currently reports as held. Idempotent and safe:
+# the virtual device only ever carries what injection put there, so anything
+# found held is a leak — including one from a previous session.
+release_all() { # $1 = quiet
+  local quiet="${1:-}" codes code
+  load_state
+  codes="${HELD// /}"
+  [ -n "$codes" ] || return 0
+  for code in $HELD; do
+    if [ "$code" -ge 272 ] && [ "$code" -le 279 ]; then
+      ydotool click "$(button_value "$code" up)" >/dev/null 2>&1
+    else
+      ydotool key "$code:0" >/dev/null 2>&1
+    fi
+    [ -n "$quiet" ] || printf 'released %s\n' "$code"
+  done
+}
+
+on_exit() {
+  local rc=$?
+  if [ "$touched" = 1 ]; then
+    release_all quiet
+    # Confirm the release actually landed; a silent leak is the failure this
+    # wrapper exists to prevent.
+    load_state
+    [ -n "${HELD// /}" ] && printf 'inject: WARNING still held after release: %s\n' "$HELD" >&2
+  fi
+  exit "$rc"
+}
+trap on_exit EXIT INT TERM
+
+# Preflight for every injecting action: a hold left behind by an earlier raw
+# call is released BEFORE this action presses anything, so a stale button can
+# never be compounded by, or mistaken for, this run's own press.
+preflight() {
+  load_state
+  [ -n "${HELD// /}" ] || return 0
+  printf 'inject: preflight — releasing stale hold: %s\n' "$HELD" >&2
+  release_all quiet
+  load_state
+  [ -n "${HELD// /}" ] && die "stale hold survived the release: $HELD" 1
+  return 0
+}
+
+# ── action helpers ──────────────────────────────────────────────────────────
+require_focus() { # $1 = comma-separated class prefixes
+  local want="$1" got
+  command -v hyprctl >/dev/null 2>&1 || die "--require-focus needs hyprctl" 2
+  got="$(hyprctl activewindow -j | python3 -c 'import json,sys; a=json.load(sys.stdin); print(a.get("class") or "")')"
+  [ -n "$got" ] || die "--require-focus: no active window" 4
+  local cls
+  for cls in ${want//,/ }; do
+    case "$got" in "$cls"*) return 0 ;; esac
+  done
+  die "refusing to inject: active window is '$got', expected ${want}" 4
+}
+
+move_absolute() { # $1 x, $2 y — verified, because an unverified move clicks the wrong thing
+  local x="$1" y="$2" cx cy i
+  for i in 1 2; do
+    ydotool mousemove --absolute -x "$x" -y "$y" >/dev/null 2>&1
+    sleep 0.15
+    read -r cx cy < <(hyprctl cursorpos | tr -d ',')
+    if [ -n "$cx" ] && [ "$((cx - x < 0 ? x - cx : cx - x))" -le "$TOLERANCE" ] &&
+       [ "$((cy - y < 0 ? y - cy : cy - y))" -le "$TOLERANCE" ]; then
+      return 0
+    fi
+  done
+  die "absolute move landed at ${cx:-?},${cy:-?} instead of $x,$y (mouse acceleration must be off for exact positioning)" 5
+}
+
+press_button() { # $1 = code
+  touched=1
+  ydotool click "$(button_value "$1" down)" >/dev/null 2>&1
+}
+
+release_button() { # $1 = code
+  ydotool click "$(button_value "$1" up)" >/dev/null 2>&1
+}
+
+# ── actions ─────────────────────────────────────────────────────────────────
+usage() {
+  cat <<'EOF'
+inject — synthetic input, always releasing what it presses.
+
+  inject status                          show what the virtual device holds (no input)
+  inject release                         release everything held (repair path)
+  inject move X Y                        absolute pointer move (verified)
+  inject click [left|right|middle] [--at X Y] [--count N]
+  inject drag X1 Y1 X2 Y2 [--button left] [--steps N] [--millis N]
+  inject scroll N [--horizontal]
+  inject type TEXT...
+  inject key CODE...                     taps: `inject key 28` (enter)
+  inject key C:S C:S ...                 balanced combo: `inject key 29:1 46:1 46:0 29:0` (ctrl+c)
+
+Common flags: --require-focus CLASS[,CLASS]  abort unless that window class is
+active (checked immediately before the first injected event); --dry-run  print
+the plan and exit without injecting.
+
+Raw `ydotool` is blocked for agents (command-guard): a bare `click 0x40` leaks
+a held button and kills every real left click machine-wide. `inject release`
+clears such a leak, and `inject status` is the read-only probe.
+EOF
+}
+
+ACTION="${1:-}"; shift 2>/dev/null || true
+[ -z "$ACTION" ] && { usage; exit 0; }
+case "$ACTION" in -h|--help|help) usage; exit 0 ;; esac
+
+# parse shared flags out of the positional list
+ARGS=(); FOCUS=""; DRYRUN=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --require-focus) FOCUS="${2:-}"; shift 2 ;;
+    --dry-run) DRYRUN=1; shift ;;
+    *) ARGS+=("$1"); shift ;;
+  esac
+done
+set -- "${ARGS[@]:-}"
+
+case "$ACTION" in
+  status)
+    load_state
+    printf 'device: %s\n' "$DEV"
+    if [ -z "${HELD// /}" ]; then echo "held: nothing"; else
+      for c in $HELD; do printf 'held: %s\n' "$c"; done
+    fi
+    [ -z "${HELD// /}" ] || { echo "run 'inject release' to clear the leak" >&2; exit 1; }
+    ;;
+
+  release)
+    release_all
+    load_state
+    [ -z "${HELD// /}" ] || die "still held: $HELD" 1
+    echo "device clear"
+    ;;
+
+  move)
+    [ $# -eq 2 ] || die "usage: inject move X Y" 2
+    [ "$DRYRUN" = 1 ] && { echo "plan: move $1 $2"; exit 0; }
+    preflight
+    [ -n "$FOCUS" ] && require_focus "$FOCUS"
+    move_absolute "$1" "$2"
+    echo "moved to $1,$2"
+    ;;
+
+  click)
+    BTN="left"; COUNT=1; AT=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --at) AT="$2 $3"; shift 3 ;;
+        --count) COUNT="$2"; shift 2 ;;
+        *) BTN="$1"; shift ;;
+      esac
+    done
+    CODE="$(button_name "$BTN")"
+    if [ "$DRYRUN" = 1 ]; then echo "plan: click $BTN x$COUNT ${AT:+at $AT}"; exit 0; fi
+    preflight
+    [ -n "$FOCUS" ] && require_focus "$FOCUS"
+    [ -n "$AT" ] && move_absolute $AT
+    i=0
+    while [ "$i" -lt "$COUNT" ]; do
+      press_button "$CODE"; sleep 0.06; release_button "$CODE"; sleep 0.06
+      i=$((i + 1))
+    done
+    echo "clicked $BTN x$COUNT"
+    ;;
+
+  drag)
+    [ $# -ge 4 ] || die "usage: inject drag X1 Y1 X2 Y2 [--button left] [--steps N] [--millis N]" 2
+    X1="$1"; Y1="$2"; X2="$3"; Y2="$4"; shift 4
+    BTN="left"; STEPS=12; MILLIS=12
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --button) BTN="$2"; shift 2 ;;
+        --steps) STEPS="$2"; shift 2 ;;
+        --millis) MILLIS="$2"; shift 2 ;;
+        *) die "unknown drag flag '$1'" 2 ;;
+      esac
+    done
+    CODE="$(button_name "$BTN")"
+    if [ "$DRYRUN" = 1 ]; then echo "plan: drag $BTN $X1,$Y1 -> $X2,$Y2 in $STEPS steps"; exit 0; fi
+    preflight
+    [ -n "$FOCUS" ] && require_focus "$FOCUS"
+    move_absolute "$X1" "$Y1"
+    press_button "$CODE"
+    i=1
+    while [ "$i" -le "$STEPS" ]; do
+      MX=$((X1 + (X2 - X1) * i / STEPS)); MY=$((Y1 + (Y2 - Y1) * i / STEPS))
+      ydotool mousemove --absolute -x "$MX" -y "$MY" >/dev/null 2>&1
+      sleep "$(python3 -c "print($MILLIS/1000)")"
+      i=$((i + 1))
+    done
+    release_button "$CODE"
+    echo "dragged $BTN $X1,$Y1 -> $X2,$Y2"
+    ;;
+
+  scroll)
+    [ $# -ge 1 ] || die "usage: inject scroll N [--horizontal]" 2
+    N="$1"; shift; AXIS=y
+    [ "${1:-}" = "--horizontal" ] && AXIS=x
+    [ "$DRYRUN" = 1 ] && { echo "plan: scroll $N on $AXIS"; exit 0; }
+    preflight
+    [ -n "$FOCUS" ] && require_focus "$FOCUS"
+    if [ "$AXIS" = x ]; then ydotool mousemove --wheel -x "$N" -y 0 >/dev/null 2>&1
+    else ydotool mousemove --wheel -x 0 -y "$N" >/dev/null 2>&1; fi
+    echo "scrolled $N ($AXIS)"
+    ;;
+
+  type)
+    [ $# -ge 1 ] || die "usage: inject type TEXT..." 2
+    TEXT="$*"
+    [ "$DRYRUN" = 1 ] && { echo "plan: type '$TEXT'"; exit 0; }
+    preflight
+    [ -n "$FOCUS" ] && require_focus "$FOCUS"
+    touched=1 # a dropped key release is the same class of leak for keys
+    ydotool type "$TEXT"
+    echo "typed ${#TEXT} chars"
+    ;;
+
+  key)
+    [ $# -ge 1 ] || die "usage: inject key CODE... | inject key C:S C:S ..." 2
+    SEQ=(); DOWNS=0; UPS=0
+    for a in "$@"; do
+      case "$a" in
+        *:*) SEQ+=("$a"); case "${a##*:}" in 1) DOWNS=$((DOWNS + 1)) ;; 0) UPS=$((UPS + 1)) ;; *) die "state must be 0 or 1 in '$a'" 2 ;; esac ;;
+        *) SEQ+=("$a:1" "$a:0") ;;   # bare code = tap, already paired
+      esac
+    done
+    [ "$DOWNS" = "$UPS" ] || die "unbalanced key sequence ($DOWNS down / $UPS up) — the wrapper only accepts paired presses; use a bare code for a tap" 6
+    if [ "$DRYRUN" = 1 ]; then echo "plan: key ${SEQ[*]}"; exit 0; fi
+    preflight
+    [ -n "$FOCUS" ] && require_focus "$FOCUS"
+    touched=1
+    ydotool key "${SEQ[@]}"
+    echo "sent ${#SEQ[@]} key events"
+    ;;
+
+  *) usage; die "unknown action '$ACTION'" 2 ;;
+esac

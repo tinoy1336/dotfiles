@@ -1,0 +1,405 @@
+#!/usr/bin/env python3
+"""Auto-rotate eDP-1 + touch input when in tablet mode (Hyprland 0.56).
+
+Listens to three inputs:
+  1. iio-sensor-proxy orientation, via `monitor-sensor` stdout (accelerometer).
+  2. The ACPI lid switch (/proc/acpi/button/lid/LID/state) and logind's
+     sleep-cycle flag — the gate on whether an orientation may be applied.
+  3. A LATCH over the SW_TABLET_MODE input switch ("Asus WMI hotkeys",
+     asus_nb_wmi lid-flip bit, WMI 0x60062) + the screen accelerometer. The
+     switch alone is unreliable — it ALSO reads "flipped" when the laptop is
+     merely ROTATED to portrait (verified: landscape → 0x10000 open, portrait →
+     0x10001 flipped, both unfolded). Tablet mode is only ENTERED when the
+     switch is flipped AND the screen is tilted off-vertical (the fold
+     signature: folding tilts the screen; a portrait hold keeps it vertical),
+     then LATCHED — so the folded tablet can be held at any angle. It EXITS only when the switch clears AND the screen is back to
+     landscape-upright (the unfold signature).
+
+Rotation happens ONLY while the device is in tablet mode (lid folded). The
+moment tablet mode is left, the display is forced back to transform 0.
+
+Rotation is DECIDED only while the device is in use: the lid switch must read
+open and logind must not be inside a sleep cycle. While the lid is closed or a
+suspend/resume is in flight the display is held at transform 0 — the panel is
+unreadable then, and a closed lid is exactly what makes the EC report the
+tablet switch flipped with the screen tilted, so an orientation decided at
+that moment would otherwise ride through the sleep and paint the wake-time
+lock screen rotated. The orientation read at the moment the device comes back
+into use decides from then on.
+
+Hyprland 0.56 uses the Lua parser, so `hyprctl keyword` is dead ("Use eval").
+Rotation is applied through:
+  hyprctl eval 'hl.monitor({ output = "eDP-1", transform = N })'   (display)
+  hyprctl eval 'hl.config({ input = { touchdevice = { transform = N }, ... } })'
+                                                                   (touch + stylus)
+"""
+
+import fcntl
+import math
+import os
+import re
+import struct
+import subprocess
+import threading
+import time
+
+try:
+    import dbus  # logind's sleep-cycle flag (org.freedesktop.login1)
+except ImportError:  # the sleep gate then degrades to "no sleep cycle"
+    dbus = None
+    print(
+        "[auto-rotate] python3-dbus missing — only the lid switch gates rotation",
+        flush=True,
+    )
+
+MONITOR = "eDP-1"
+
+# iio-sensor-proxy orientation -> Hyprland monitor transform
+# (0 = normal, 1 = 90deg, 2 = 180deg, 3 = 270deg).
+# left-up/right-up may need swapping depending on the sensor's rotation
+# convention — verify with a physical rotation and swap 1<->3 if the display
+# rotates the wrong way.
+ORIENT_TRANSFORM = {
+    "normal": 0,
+    "bottom-up": 2,
+    "right-up": 3,
+    "left-up": 1,
+}
+
+# Touch/stylus transform follows the display transform. Hyprland touch
+# transform is 0-7 (4-7 are mirrored/flipped variants); for a matching panel
+# this equals the monitor value. If touch ends up mirrored (screen rotates
+# correctly but the touch point is flipped), return the mirrored variant
+# (value + 4) here instead.
+def touch_transform(display):
+    return display
+
+def find_switch_device():
+    try:
+        with open("/proc/bus/input/devices") as f:
+            block = None
+            for line in f:
+                if line.startswith("N: Name="):
+                    block = line
+                elif line.startswith("H: Handlers=") and block and "Asus WMI hotkeys" in block:
+                    m = re.search(r"event\d+", line)
+                    if m:
+                        return "/dev/input/" + m.group(0)
+    except OSError:
+        pass
+    return "/dev/input/event15"
+
+
+# Screen accelerometer (accel_3d). Found by NAME, never by index: the kernel's
+# IIO enumeration order is not stable across boots or resumes, and a stale index
+# silently reads a different sensor — als/prox expose no in_accel_* attributes,
+# so every read raises and the tablet latch never engages.
+IIO_DIR = "/sys/bus/iio/devices"
+
+
+def find_accel_device():
+    """Sysfs directory of the screen accelerometer, or None when absent."""
+    try:
+        names = sorted(os.listdir(IIO_DIR))
+    except OSError:
+        return None
+    for name in names:
+        try:
+            with open(os.path.join(IIO_DIR, name, "name")) as f:
+                if f.read().strip() == "accel_3d":
+                    return os.path.join(IIO_DIR, name)
+        except OSError:
+            continue
+    for name in names:
+        if os.path.exists(os.path.join(IIO_DIR, name, "in_accel_x_raw")):
+            return os.path.join(IIO_DIR, name)
+    return None
+
+
+# SW_TABLET_MODE input switch (the EC's lid-flip bit, asus_nb_wmi WMI 0x60062).
+# EVIOCGSW = 0x8010451b; SW_TABLET_MODE = bit 0x2.
+SWITCH_DEVICE = find_switch_device()
+
+ACCEL_DEVICE = find_accel_device()
+
+# ACPI lid switch — the same switch whose "closed" makes logind suspend.
+LID_STATE = "/proc/acpi/button/lid/LID/state"
+
+# Test seam: a `key=value` file (`lid=closed`, `sleep=yes`, `tablet=yes`,
+# `orientation=left-up`) re-read on every poll, so a closed lid, a sleep cycle
+# or a folded screen can be replayed without touching the hardware.
+STATE_OVERRIDE = os.environ.get("AUTO_ROTATE_STATE")
+
+_lock = threading.Lock()
+_tablet = False
+_latched = False
+_orientation = "normal"
+_last = None
+_lid_open = None  # set by the first poll — held upright until then
+_sleeping = None
+_login1 = None
+_login1_warned = False
+TABLET_DEBOUNCE_S = 0.5
+_tablet_pending = None
+_tablet_timer = None
+
+
+def _hyprctl(eval_lua):
+    subprocess.run(["hyprctl", "eval", eval_lua], capture_output=True)
+
+
+def apply(transform):
+    global _last
+    if transform == _last:
+        return
+    _last = transform
+    _hyprctl(f'hl.monitor({{ output = "{MONITOR}", transform = {transform} }})')
+    tt = touch_transform(transform)
+    _hyprctl(
+        'hl.config({ input = { touchdevice = { transform = %d }, tablet = { transform = %d } } })' % (tt, tt)
+    )
+    # Re-fit the AGS on-screen keyboard for the new orientation immediately
+    # (its own 2s rotation poll would lag a beat behind the transform).
+    subprocess.run(["ags", "-i", "shell", "request", "keyboard rebuild"], capture_output=True)
+    print(
+        f"[auto-rotate] tablet={_tablet} orientation={_orientation} -> transform={transform}",
+        flush=True,
+    )
+
+
+def desired_transform():
+    """0 unless the device is in use (lid open, no sleep cycle in flight) and
+    in tablet mode — the display is held upright whenever nothing can be seen."""
+    with _lock:
+        if not _lid_open or _sleeping:
+            return 0
+        return ORIENT_TRANSFORM.get(_orientation, 0) if _tablet else 0
+
+
+def reevaluate():
+    apply(desired_transform())
+
+
+def set_gate(lid, sleeping):
+    global _lid_open, _sleeping
+    with _lock:
+        if lid == _lid_open and sleeping == _sleeping:
+            return
+        _lid_open, _sleeping = lid, sleeping
+    print(
+        f"[auto-rotate] lid={'open' if lid else 'closed'} "
+        f"sleep={'yes' if sleeping else 'no'} -> "
+        f"{'in use' if lid and not sleeping else 'held upright'}",
+        flush=True,
+    )
+    reevaluate()
+
+
+def set_tablet(v):
+    global _tablet, _tablet_pending, _tablet_timer
+    print(f"[auto-rotate] tablet={v}", flush=True)
+    changed = False
+    with _lock:
+        if v == _tablet:
+            if _tablet_timer:
+                _tablet_timer.cancel()
+                _tablet_timer = None
+            _tablet_pending = None
+            return
+        if not v:
+            # Leaving tablet mode — commit immediately so the screen
+            # unrotates the instant the lid opens.
+            if _tablet_timer:
+                _tablet_timer.cancel()
+                _tablet_timer = None
+            _tablet_pending = None
+            _tablet = False
+            changed = True
+        else:
+            # Entering tablet mode — debounce: require the switch to stay on
+            # for TABLET_DEBOUNCE_S before rotating, so a lid-angle flap in
+            # laptop mode can't trigger a spurious rotation.
+            _tablet_pending = True
+            if _tablet_timer:
+                _tablet_timer.cancel()
+            _tablet_timer = threading.Timer(TABLET_DEBOUNCE_S, _commit_tablet)
+            _tablet_timer.daemon = True
+            _tablet_timer.start()
+    if changed:
+        reevaluate()
+
+
+def _commit_tablet():
+    global _tablet, _tablet_pending, _tablet_timer
+    changed = False
+    with _lock:
+        _tablet_timer = None
+        if _tablet_pending is None:
+            return
+        v = _tablet_pending
+        _tablet_pending = None
+        _tablet = v
+        changed = True
+    if changed:
+        reevaluate()
+
+
+def set_orientation(o):
+    global _orientation
+    if not o or o == "undefined":
+        return  # no usable reading — keep the last orientation
+    print(f"[auto-rotate] orientation={o}", flush=True)
+    with _lock:
+        if o == _orientation:
+            return
+        _orientation = o
+    reevaluate()
+
+
+# ── orientation: monitor-sensor stdout ──
+def watch_orientation():
+    while True:
+        try:
+            proc = subprocess.Popen(
+                ["monitor-sensor"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                bufsize=1,
+            )
+        except FileNotFoundError:
+            print("[auto-rotate] monitor-sensor not found (install iio-sensor-proxy)", flush=True)
+            return
+        for line in proc.stdout:
+            m = re.search(r"orientation changed:\s*(\S+)", line)
+            if m:
+                set_orientation(m.group(1))
+        proc.wait()
+        time.sleep(2)  # monitor-sensor died — restart it
+
+
+# ── state: the SW_TABLET_MODE latch and the lid/sleep gate (poll) ──
+def read_lid_open():
+    try:
+        with open(LID_STATE) as f:
+            return "closed" not in f.read()
+    except OSError:
+        return True  # no readable lid switch — the sleep gate still applies
+
+
+def sleep_in_progress():
+    """logind's sleep flag: true from the start of a suspend/hibernate until
+    the resume has completed."""
+    if dbus is None:
+        return False
+    global _login1, _login1_warned
+    try:
+        if _login1 is None:
+            _login1 = dbus.SystemBus().get_object(
+                "org.freedesktop.login1", "/org/freedesktop/login1"
+            )
+        return bool(
+            _login1.Get(
+                "org.freedesktop.login1.Manager",
+                "PreparingForSleep",
+                dbus_interface="org.freedesktop.DBus.Properties",
+            )
+        )
+    except Exception as e:
+        if not _login1_warned:
+            _login1_warned = True
+            print(
+                f"[auto-rotate] logind PreparingForSleep unreadable ({e}) — "
+                "the sleep gate is off",
+                flush=True,
+            )
+        return False
+
+
+def read_override():
+    if not STATE_OVERRIDE:
+        return {}
+    try:
+        with open(STATE_OVERRIDE) as f:
+            return dict(
+                line.split("=", 1) for line in (l.strip() for l in f) if "=" in line
+            )
+    except OSError:
+        return {}
+
+
+def read_tablet_switch():
+    try:
+        fd = os.open(SWITCH_DEVICE, os.O_RDONLY)
+        buf = fcntl.ioctl(fd, 0x8010451b, b"\0" * 16)
+        os.close(fd)
+        return bool(struct.unpack("I", buf[:4])[0] & 0x2)
+    except OSError:
+        return False
+
+
+def read_accel():
+    """(tilted, landscape_upright) from the screen accelerometer (accel_3d)."""
+    global ACCEL_DEVICE
+    xyz = None
+    for _ in range(2):
+        if ACCEL_DEVICE is None:
+            ACCEL_DEVICE = find_accel_device()
+            if ACCEL_DEVICE is None:
+                return False, False
+        try:
+            with open(os.path.join(ACCEL_DEVICE, "in_accel_x_raw")) as fx, open(
+                os.path.join(ACCEL_DEVICE, "in_accel_y_raw")
+            ) as fy, open(os.path.join(ACCEL_DEVICE, "in_accel_z_raw")) as fz:
+                xyz = (int(fx.read()), int(fy.read()), int(fz.read()))
+            break
+        except (OSError, ValueError):
+            # The node was renumbered (e.g. across a resume) — rediscover once.
+            ACCEL_DEVICE = None
+    if xyz is None:
+        return False, False
+    x, y, z = xyz
+    mag = math.sqrt(x * x + y * y + z * z)
+    if mag <= 5:
+        return False, False
+    # Entry "tilted" threshold: 0.5 = screen >~30° off vertical (more
+    # horizontal than vertical), safely above the resting recline (~0.2-0.31)
+    # yet well below "flat" (0.7) so fold entry stays early.
+    tilted = abs(z) / mag > 0.5
+    landscape_upright = abs(y) / mag > 0.7 and abs(z) / mag < 0.5
+    return tilted, landscape_upright
+
+
+def watch_state():
+    global _latched
+    while True:
+        sw = read_tablet_switch()
+        tilted, lu = read_accel()
+        if _latched:
+            if not sw and lu:
+                _latched = False
+        else:
+            if sw and tilted:
+                _latched = True
+        over = read_override()
+        set_tablet(over["tablet"] == "yes" if "tablet" in over else _latched)
+        if "orientation" in over:
+            set_orientation(over["orientation"])
+        lid = over["lid"] == "open" if "lid" in over else read_lid_open()
+        sleeping = over["sleep"] == "yes" if "sleep" in over else sleep_in_progress()
+        set_gate(lid, sleeping)
+        time.sleep(0.5)
+
+
+def main():
+    print(
+        f"[auto-rotate] accel device: {ACCEL_DEVICE or 'NOT FOUND'}",
+        flush=True,
+    )
+    apply(0)  # force normal at startup (laptop mode default)
+    threading.Thread(target=watch_state, daemon=True).start()
+    watch_orientation()
+
+
+if __name__ == "__main__":
+    main()

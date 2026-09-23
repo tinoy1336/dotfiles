@@ -1,0 +1,7 @@
+[Unit]
+Description=Apply a random wallpaper with a fade transition
+After=awww-daemon.service
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/wallpapers-sync apply

@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+# On-demand sync of ~/wallpapers <-> Proton Drive /my-files/Wallpapers.
+# Uses the official proton-drive CLI (auth session in the login keyring,
+# ch.proton.drive/drive-sdk-cli) — no background daemon involved.
+#
+# Usage:
+#   wallpapers-sync pull [--apply]   Cloud -> local (cloud is source of truth;
+#                                    merges dirs, replaces changed files,
+#                                    flattens the nested Wallpapers/ dir).
+#                                    --apply sets a random wallpaper after.
+#   wallpapers-sync push             Local -> cloud. Uploads new/changed files
+#                                    (same content auto-skipped). Never deletes
+#                                    remote files — deletions don't propagate.
+#   wallpapers-sync apply            Set a random wallpaper from ~/wallpapers
+#                                    (awww fade) + sync it to the greeter.
+#   wallpapers-sync apply-greeter    Apply the greeter's synced wallpaper (the
+#                                    image the login screen showed) so the
+#                                    post-login handoff fades seamlessly.
+set -uo pipefail
+
+dest="$HOME/wallpapers"
+remote="/my-files/Wallpapers"
+transition_type="fade"
+transition_duration=2
+
+log() { printf '%s\n' "$*"; }
+die() { printf 'wallpapers-sync: %s\n' "$*" >&2; exit 1; }
+
+wait_for_network() {
+    for _ in $(seq 1 12); do
+        if proton-drive filesystem list /my-files >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 5
+    done
+    die "proton-drive CLI unavailable or not authenticated (login keyring session missing?)"
+}
+
+pull() {
+    mkdir -p "$dest"
+    wait_for_network
+    log "Pulling $remote -> $dest ..."
+    proton-drive filesystem download -c merge -f replace "$remote" "$dest" || die "download failed"
+    if [ -d "$dest/Wallpapers" ]; then
+        find "$dest/Wallpapers" -mindepth 1 -maxdepth 1 -exec mv -t "$dest" {} +
+        rmdir "$dest/Wallpapers" 2>/dev/null || true
+    fi
+    log "Pull complete."
+}
+
+push() {
+    shopt -s nullglob
+    local files=("$dest"/*)
+    shopt -u nullglob
+    [ ${#files[@]} -eq 0 ] && die "nothing in $dest to push"
+    wait_for_network
+    log "Pushing $dest -> $remote ..."
+    proton-drive filesystem upload -c merge -f replace "${files[@]}" "$remote" || die "upload failed"
+    log "Push complete."
+}
+
+# Core apply: awww-fade a specific image, retrying until the daemon accepts.
+apply_file() {
+    local pick="$1"
+    for _ in $(seq 1 10); do
+        if awww img "$pick" --transition-type "$transition_type" --transition-duration "$transition_duration" 2>/dev/null; then
+            log "Applied: $pick"
+            return 0
+        fi
+        sleep 2
+    done
+    die "awww-daemon unreachable"
+}
+
+apply() {
+    shopt -s nullglob
+    local walls=("$dest"/*.png)
+    shopt -u nullglob
+    [ ${#walls[@]} -eq 0 ] && die "no .png files in $dest"
+    # Never pick the image already on screen (when alternatives exist).
+    local current
+    current="$(awww query 2>/dev/null | sed -n 's/.*currently displaying: image: //p' | head -n1)"
+    if [ -n "$current" ] && [ ${#walls[@]} -gt 1 ]; then
+        local others=()
+        local w
+        for w in "${walls[@]}"; do
+            [ "$w" != "$current" ] && others+=("$w")
+        done
+        [ ${#others[@]} -gt 0 ] && walls=("${others[@]}")
+    fi
+    local pick="${walls[$((RANDOM % ${#walls[@]}))]}"
+    apply_file "$pick"
+    cp "$pick" /etc/greetd/ags-greeter/wallpaper.png 2>/dev/null || true
+}
+
+# Login handoff: apply the SAME image the greeter showed (the synced greeter
+# wallpaper) so the post-login transition is wallpaper -> same wallpaper, not
+# a visible swap to a random image. The 10-min rotation timer randomizes
+# later. The cp-back is best-effort parity (the file is already in place).
+apply_greeter() {
+    local pick="/etc/greetd/ags-greeter/wallpaper.png"
+    [ -f "$pick" ] || die "greeter wallpaper missing: $pick"
+    # Instant (no fade) + fast retry: the login handoff must paint the SAME
+    # wallpaper the greeter showed as quickly as possible (the daemon may
+    # still be starting when hyprland.lua calls us).
+    for _ in $(seq 1 50); do
+        if awww img "$pick" --transition-type none 2>/dev/null; then
+            log "Applied: $pick"
+            cp "$pick" /etc/greetd/ags-greeter/wallpaper.png 2>/dev/null || true
+            return 0
+        fi
+        sleep 0.2
+    done
+    die "awww-daemon unreachable"
+}
+
+case "${1:-}" in
+    pull)  shift; pull; [ "${1:-}" = "--apply" ] && apply ;;
+    push)  push ;;
+    apply) apply ;;
+    apply-greeter) apply_greeter ;;
+    *)     die "usage: wallpapers-sync {pull [--apply]|push|apply|apply-greeter}" ;;
+esac

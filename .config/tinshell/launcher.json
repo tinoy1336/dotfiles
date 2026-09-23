@@ -1,0 +1,26 @@
+{
+  "window": {
+    "width": 0.3,
+    "maxWidth": 800
+  },
+  "listHeight": 5,
+  "sources": {
+    "applications": true,
+    "calc": true,
+    "time": true,
+    "bangs": true
+  },
+  "calc": {
+    "debounceMs": 175,
+    "timeoutMs": 4000
+  },
+  "currency": {
+    "cacheMs": 86400000,
+    "timeoutMs": 6000
+  },
+  "bangs": {
+    "browserFirefox": "firefox",
+    "browserChromium": "chromium",
+    "searchUrl": "https://www.google.com/search?q="
+  }
+}

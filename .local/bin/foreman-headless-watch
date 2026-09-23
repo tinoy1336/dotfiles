@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+# foreman-headless-watch — detached supervisor for a headless `pi -p` run.
+#
+# This is the DIRECT PARENT of the pi process (so it can `wait` and capture the
+# real exit code), and setsid-detached from the launcher so it survives the
+# launcher exiting immediately. On pi exit it:
+#   - writes a one-line completion marker next to the log
+#   - appends a JSONL row to the headless-runs ledger
+#   - fires a desktop notification (notify-send) with the summary
+#
+# Args (all positional):
+#   $1 name        session/run name
+#   $2 combined    merged prompt file (original + epilogue)
+#   $3 model       model pattern
+#   $4 cwd         working directory for the pi session
+#   $5 log         absolute path to the output log
+#   $6 pidfile     absolute path to the pi pid file
+#   $7 report      absolute path the verifier was told to write
+#   $8 sessiondir  dedicated per-run session storage dir (for --resume)
+#   $9 ledger      absolute path to headless-runs.jsonl
+
+set -u
+
+name="$1"
+combined="$2"
+model="$3"
+cwd="$4"
+log="$5"
+pidfile="$6"
+report="$7"
+sessiondir="$8"
+ledger="$9"
+
+cd "$cwd" || exit 9
+
+# Strip every PI_SUBAGENT_* variable from the pi child's environment so a
+# headless verifier ALWAYS runs as a plain parent session, regardless of who
+# invoked the launcher. Without this, a launcher call from inside a
+# pi-subagents child leaks the full PI_SUBAGENT_* set into the fresh `pi -p`
+# process, which then registers itself as a worker leaf (PI_SUBAGENT_CHILD=1,
+# no subagent tool, no in-process parent watcher) and the verification
+# silently runs the wrong path (sam-e2e-1 launch confound).
+#
+# Build a surgical `env -u VAR ...` argument list from the CURRENT env so this
+# works whether or not the caller is itself a subagent.
+env_args=()
+while IFS= read -r sub_var; do
+  env_args+=( -u "$sub_var" )
+done < <(env | sed -n 's/^\(PI_SUBAGENT_[A-Z0-9_]*\)=.*/\1/p' | sort -u)
+
+# Launch pi in the background; record its PID immediately so the launcher can
+# return it. Use a dedicated session dir so the session file is discoverable
+# for a later `pi --resume --session-dir ...`.
+"$(command -v env)" "${env_args[@]}" pi -p \
+  --name "$name" \
+  --model "$model" \
+  --session-dir "$sessiondir" \
+  "@$combined" >"$log" 2>&1 &
+pi_pid=$!
+echo "$pi_pid" > "$pidfile"
+
+# Wait for pi to finish; keep the real exit code.
+wait "$pi_pid"
+ec=$?
+
+# --- gather the summary -------------------------------------------------------
+# The verifier is told to end its final stdout line with "PASS/FAIL: ...".
+# Prefer the last such line in the log; fall back to a compact exit line.
+summary="run exited with code $ec"
+last_summary="$(grep -E '^PASS/FAIL:' "$log" 2>/dev/null | tail -n 1)"
+if [ -n "$last_summary" ]; then
+  summary="$last_summary"
+fi
+
+# --- completion marker (one line, next to the log) ----------------------------
+marker="/tmp/foreman-headless-$name.done"
+{
+  echo "name=$name"
+  echo "exit=$ec"
+  echo "pid=$pi_pid"
+  echo "report=$report"
+  echo "summary=$summary"
+} > "$marker"
+
+# --- ledger row ---------------------------------------------------------------
+# Discover the session file written to the dedicated session dir (resume key).
+session_file=""
+if [ -d "$sessiondir" ]; then
+  session_file="$(find "$sessiondir" -maxdepth 1 -name '*.jsonl' 2>/dev/null | head -n 1)"
+fi
+timestamp="$(date -u +%FT%TZ)"
+
+# JSON-escape the summary so the ledger stays valid JSONL.
+escaped_summary="$(printf '%s' "$summary" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+
+mkdir -p "$(dirname "$ledger")"
+printf '{"ts":"%s","name":"%s","pid":%s,"model":"%s","exit":%s,"report":"%s","session_file":"%s","summary":"%s"}\n' \
+  "$timestamp" "$name" "$pi_pid" "$model" "$ec" "$report" "$session_file" "$escaped_summary" \
+  >> "$ledger"
+
+# --- desktop notification -----------------------------------------------------
+notify-send \
+  --app-name="foreman-headless" \
+  --urgency=normal \
+  "headless run done: $name" \
+  "$summary" 2>/dev/null || true
+
+exit 0

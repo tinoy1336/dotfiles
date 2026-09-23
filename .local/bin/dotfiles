@@ -1,0 +1,33 @@
+#!/bin/sh
+# ~/.local/bin/dotfiles — git against the $HOME dotfiles repo. The git dir lives
+# OUTSIDE the work tree so nothing under $HOME is seen as a repository by any
+# other tool. Install at mode 0755.
+GIT_DIR="$HOME/.dotfiles.git"
+GIT_WORK_TREE="$HOME"
+export GIT_DIR GIT_WORK_TREE
+
+allow_destructive() { [ "${DOTFILES_ALLOW_DESTRUCTIVE:-0}" = 1 ]; }
+refuse() {
+  echo "dotfiles: refusing '$1' — it acts on the live home directory." >&2
+  echo "dotfiles: set DOTFILES_ALLOW_DESTRUCTIVE=1 if that is really intended." >&2
+  exit 1
+}
+
+case "$1" in
+  clean|rm)
+    allow_destructive || refuse "$1" ;;
+  reset)
+    for a in "$@"; do
+      case "$a" in
+        --hard|--merge) allow_destructive || refuse "reset $a" ;;
+      esac
+    done ;;
+  checkout|restore)
+    # allow the targeted form (`checkout -- <path>`); refuse the blanket forms
+    # that overwrite the whole work tree from the index or another commit
+    seen_sep=0
+    for a in "$@"; do [ "$a" = "--" ] && seen_sep=1; done
+    [ "$seen_sep" = 1 ] || allow_destructive || refuse "$1 (blanket form)" ;;
+esac
+
+exec /usr/bin/git "$@"

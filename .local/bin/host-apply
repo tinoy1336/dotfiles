@@ -1,0 +1,265 @@
+#!/usr/bin/env bash
+# host-apply — apply this machine's host declaration.
+#
+# A host directory at ~/.config/hosts/<host>/ holds host.conf (the units this
+# machine enables, the root-scoped files it needs installed, and notes for a
+# human) plus root/, a mirror tree whose files are installed at the absolute
+# paths they name. Units stay where systemd reads them; the declaration is the
+# only record of which of them this machine wants enabled, because git cannot
+# carry an enablement link.
+#
+# Usage: host-apply [--dry-run]
+#
+#   --dry-run   print the plan and change nothing
+#
+# The host name comes from `hostnamectl --static`, falling back to
+# `hostname -s`. HOST_APPLY_HOST overrides it, which is how the dry run is
+# exercised for a host that is not this machine; it overrides the real run too,
+# so it does not belong in a shell profile.
+#
+# Idempotent: a root file whose destination already holds identical content and
+# the same mode is skipped, and an already-enabled unit is skipped. Root steps
+# use sudo inline — the same path ~/.config/ags/setup.sh uses for its
+# root-requiring steps. host-apply never reloads systemd, and never starts,
+# stops, disables or unmasks a unit.
+
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: host-apply [--dry-run]
+
+  --dry-run   print exactly what would be done and change nothing
+
+Reads ~/.config/hosts/<hostname>/host.conf and enables the units it lists,
+installing the root-scoped files under that directory's root/ tree at the
+absolute paths they mirror. Refuses on a machine with no host directory.
+EOF
+}
+
+say()  { printf '%s\n' "$*"; }
+warn() { printf 'host-apply: %s\n' "$*" >&2; }
+die()  { printf 'host-apply: %s\n' "$*" >&2; exit 1; }
+
+trim() {
+  local s="$1"
+  s="${s#"${s%%[![:space:]]*}"}"
+  s="${s%"${s##*[![:space:]]}"}"
+  printf '%s' "$s"
+}
+
+dry=0
+for arg in "$@"; do
+  case "$arg" in
+    -n|--dry-run) dry=1 ;;
+    -h|--help) usage; exit 0 ;;
+    *) warn "unknown argument: $arg"; usage >&2; exit 2 ;;
+  esac
+done
+
+# ---- which host is this? -----------------------------------------------------
+host="${HOST_APPLY_HOST:-}"
+if [ -z "$host" ]; then
+  if command -v hostnamectl >/dev/null 2>&1; then
+    host="$(hostnamectl --static 2>/dev/null || true)"
+  fi
+  [ -n "$host" ] || host="$(hostname -s)"
+fi
+[ -n "$host" ] || die "cannot determine this machine's host name"
+
+hosts_dir="$HOME/.config/hosts"
+dir="$hosts_dir/$host"
+
+if [ ! -d "$dir" ]; then
+  warn "no host declaration for '$host' — $dir does not exist"
+  if [ -d "$hosts_dir" ]; then
+    declared=""
+    for d in "$hosts_dir"/*/; do
+      [ -d "$d" ] && declared="$declared $(basename "${d%/}")"
+    done
+    declared="$(trim "$declared")"
+    if [ -n "$declared" ]; then
+      warn "declared hosts:$declared"
+    else
+      warn "$hosts_dir holds no host directory"
+    fi
+  else
+    warn "$hosts_dir does not exist: this machine declares no host"
+  fi
+  warn "to declare it, create $dir/host.conf (units, root files, notes) and $dir/root/ for its root-scoped files"
+  warn "refusing to guess; nothing was changed"
+  exit 1
+fi
+
+conf="$dir/host.conf"
+[ -f "$conf" ] || die "$dir exists but holds no host.conf — refusing to guess"
+
+# ---- parse the declaration ---------------------------------------------------
+units_user=()
+units_system=()
+root_paths=()
+root_modes=()
+notes=()
+section=""
+lineno=0
+while IFS= read -r raw || [ -n "$raw" ]; do
+  lineno=$((lineno + 1))
+  line="${raw#"${raw%%[![:space:]]*}"}"
+  case "$line" in
+    ""|\#*|\;*) continue ;;
+    \[*\])
+      section="${line#[}"
+      section="${section%]}"
+      case "$section" in
+        units-user|units-system|roots|notes) ;;
+        *) die "$conf:$lineno: unknown section [$section]" ;;
+      esac
+      continue
+      ;;
+  esac
+  case "$section" in
+    units-user)   units_user+=("$(trim "${line%%[[:space:]]*}")") ;;
+    units-system) units_system+=("$(trim "${line%%[[:space:]]*}")") ;;
+    roots)
+      [ "$line" != "${line%%=*}" ] || die "$conf:$lineno: a roots entry reads '<path> = <mode>': $line"
+      rel="$(trim "${line%%=*}")"
+      mode="$(trim "${line#*=}")"
+      case "$rel" in
+        ""|/*|*..*) die "$conf:$lineno: a roots path is relative to root/ and holds no '..': $rel" ;;
+      esac
+      case "$mode" in
+        [0-7][0-7][0-7]|[0-7][0-7][0-7][0-7]) ;;
+        *) die "$conf:$lineno: a roots mode is octal, e.g. 0644: $mode" ;;
+      esac
+      root_paths+=("$rel")
+      root_modes+=("$mode")
+      ;;
+    notes) notes+=("$line") ;;
+    "") die "$conf:$lineno: entry outside any section: $line" ;;
+  esac
+done < "$conf"
+
+if [ "${#units_user[@]}" -eq 0 ] && [ "${#units_system[@]}" -eq 0 ] && [ "${#root_paths[@]}" -eq 0 ]; then
+  die "$conf declares no units and no root files — nothing to apply"
+fi
+
+say "host-apply: host '$host'"
+say "host-apply: declaration $conf"
+if [ "$dry" = 1 ]; then
+  say "host-apply: dry run — nothing will be changed"
+fi
+
+changed=0
+
+# ---- root-scoped files -------------------------------------------------------
+say ""
+say "root files (sudo install, at the paths they mirror):"
+if [ "${#root_paths[@]}" -eq 0 ]; then
+  say "  none declared"
+fi
+i=0
+while [ "$i" -lt "${#root_paths[@]}" ]; do
+  rel="${root_paths[$i]}"
+  mode="${root_modes[$i]}"
+  i=$((i + 1))
+  src="$dir/root/$rel"
+  dst="/$rel"
+  [ -f "$src" ] || die "declared root file is missing from the overlay: $src"
+  if [ -f "$dst" ] && cmp -s "$src" "$dst" && [ "$((10#$(stat -c %a "$dst")))" = "$((10#$mode))" ]; then
+    say "  skip    $dst (already installed, identical content and mode)"
+    continue
+  fi
+  changed=1
+  if [ "$dry" = 1 ]; then
+    say "  install $dst (mode $mode)"
+    say "            <- sudo install -Dm$mode $src $dst"
+  else
+    say "  install $dst (mode $mode)"
+    sudo install -Dm"$mode" "$src" "$dst"
+  fi
+done
+
+# ---- unit enablement ---------------------------------------------------------
+enable_unit() {
+  local scope="$1" unit="$2" out state
+  if [ "$scope" = user ]; then
+    out="$(systemctl --user is-enabled "$unit" 2>&1 || true)"
+  else
+    out="$(systemctl is-enabled "$unit" 2>&1 || true)"
+  fi
+  state="$(printf '%s' "$out" | head -n1)"
+  case "$state" in
+    enabled|enabled-runtime|alias|indirect|generated|transient)
+      say "  skip    $unit ($scope: already enabled)"
+      return 0
+      ;;
+    static|masked)
+      say "  skip    $unit ($scope: $state — not an enable target)"
+      return 0
+      ;;
+    disabled)
+      ;;
+    *)
+      die "$scope unit $unit: systemctl is-enabled answered '$state'"
+      ;;
+  esac
+  changed=1
+  if [ "$dry" = 1 ]; then
+    if [ "$scope" = user ]; then
+      say "  enable  $unit (user)"
+      say "            <- systemctl --user enable $unit"
+    else
+      say "  enable  $unit (system)"
+      say "            <- sudo systemctl enable $unit"
+    fi
+  else
+    say "  enable  $unit ($scope)"
+    if [ "$scope" = user ]; then
+      systemctl --user enable "$unit"
+    else
+      sudo systemctl enable "$unit"
+    fi
+  fi
+}
+
+say ""
+say "system units (sudo systemctl enable):"
+if [ "${#units_system[@]}" -eq 0 ]; then
+  say "  none declared"
+fi
+for u in "${units_system[@]}"; do
+  enable_unit system "$u"
+done
+
+say ""
+say "user units (systemctl --user enable):"
+if [ "${#units_user[@]}" -eq 0 ]; then
+  say "  none declared"
+fi
+for u in "${units_user[@]}"; do
+  enable_unit user "$u"
+done
+
+# ---- notes -------------------------------------------------------------------
+if [ "${#notes[@]}" -ne 0 ]; then
+  say ""
+  say "notes for a human:"
+  for n in "${notes[@]}"; do
+    say "  $n"
+  done
+fi
+
+# ---- result ------------------------------------------------------------------
+say ""
+if [ "$dry" = 1 ]; then
+  if [ "$changed" = 1 ]; then
+    say "host-apply: dry run — the commands after '<-' are what a real run would execute."
+  else
+    say "host-apply: dry run — the declaration is already applied; a real run would change nothing."
+  fi
+elif [ "$changed" = 1 ]; then
+  say "host-apply: applied."
+  say "host-apply: reload systemd to see the installed unit files: systemctl --user daemon-reload && sudo systemctl daemon-reload"
+else
+  say "host-apply: nothing to do — the declaration is already applied."
+fi

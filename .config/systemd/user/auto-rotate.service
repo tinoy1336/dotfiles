@@ -1,0 +1,30 @@
+# auto-rotate.service — rotate eDP-1 + touch input when in tablet mode.
+#
+# A thin python watcher (~/.local/bin/auto-rotate) listens to the accelerometer
+# orientation (iio-sensor-proxy via monitor-sensor) and the SW_TABLET_MODE
+# switch (evdev), and rotates the display + touchscreen/stylus through
+# `hyprctl eval` (Hyprland 0.56 Lua parser — `hyprctl keyword` is dead).
+#
+# Rotation only happens while in tablet mode; leaving tablet mode forces
+# transform 0. Rotation is only DECIDED while the lid switch reads open and
+# logind is not inside a sleep cycle — a closed lid or an in-flight suspend
+# pins transform 0, so an orientation read on the way into a bag cannot
+# survive the sleep and paint the wake-time lock screen rotated.
+# WAYLAND_DISPLAY lets hyprctl find the compositor;
+# DBUS_SESSION_BUS_ADDRESS is provided by the user manager so monitor-sensor
+# reaches iio-sensor-proxy on the session bus.
+
+[Unit]
+Description=Auto-rotate display + touch input in tablet mode
+PartOf=graphical-session.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=/home/tinoy/.local/bin/auto-rotate
+Restart=on-failure
+RestartSec=3
+Environment=WAYLAND_DISPLAY=wayland-1
+
+[Install]
+WantedBy=graphical-session.target

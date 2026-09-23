@@ -1,0 +1,414 @@
+#!/usr/bin/env bash
+#
+# pi-foreman — launch pi as a foreman session (the front door to foreman mode).
+#
+# WHAT IT DOES
+#   Sets PI_FOREMAN=1, strips the crew-identity variables a wrapping process may
+#   have left in the environment, seeds the provider keys from the cli-keys cache,
+#   and execs pi with the caller's arguments plus the brief as the first message.
+#   The fleet extension reads PI_FOREMAN at `session_start` and arms the mode from
+#   the same transaction it already used to re-arm a mode file that says ON, so the
+#   foreman tool set and the discipline section are in place before the first
+#   request. The launcher itself arms nothing: it never writes a mode file, never
+#   emits `canon:section`, and never calls `setActiveTools` — all three belong to
+#   the extension, which cannot be reached from a shell.
+#
+# WHY THE MARKER AND NOT THE COMMAND
+#   `/foreman` is retired. The marker is the only arming signal that exists before
+#   pi's first request, and it is the reason this launcher exists at all: a script
+#   runs before pi starts, a command runs inside it.
+#
+# THE ENVIRONMENT STRIP IS ENUMERATED, NEVER A PREFIX
+#   Stripped — the identity and binding markers that make a process believe it is a
+#   crew leaf or another session's child:
+#     PI_SUBAGENT  PI_SUBAGENT_CHILD  PI_SUBAGENT_PARENT_SESSION
+#     PI_SUBAGENT_EXTENSION_BINDINGS  PI_INTERCOM_SESSION_ID
+#   Kept — configuration, not identity:
+#     PI_SUBAGENT_PI_BINARY         the binary pi-subagents launches nested runs with
+#     PI_SUBAGENT_CACHE_RETENTION   the parent-long/child-short cache split
+#   `PI_SUBAGENT*` by prefix would remove the two that must survive and silently
+#   reroute every nested launch to plain pi. it is deliberately not used here.
+#
+#   PI_SUBAGENT=1 is NEVER set: it flips the canon audience (parent-scoped rules
+#   stop rendering), disables desktop notifications for a session that must be
+#   reachable, and changes the system-prompt bytes.
+#
+# PROVIDER KEYS: A SEED, NOT THE OWNER OF FRESHNESS
+#   The cache file's own expiry still owns when to REFRESH, and cli-keys.ts still
+#   hydrates and refreshes. This step only warms the environment before pi's first
+#   availability pass, which runs before any extension exists. An expired cache is
+#   still seeded — the expiry decides when to refresh, never what may be handed out —
+#   and only an absent or unreadable cache leaves the environment untouched. No
+#   value is ever printed, logged, or placed in argv.
+#
+# WHAT IT DELIBERATELY DOES NOT DO
+#   No model default, no provider default, no tool allowlist, no session-dir
+#   default, no extension or skill allowlist, no mode-file writing. The tool set
+#   and the model stay owned by the extension and by settings.json. The ONE default
+#   it sets is the session display name (`--name foreman`, skipped when the caller
+#   passes -n/--name), because an unnamed foreman is harder to address on intercom
+#   and in the footer.
+#
+# usage: pi-foreman [launcher options] [brief] [-- <pi args>]
+#        pi-foreman --brief <file> [-- <pi args>]
+#
+#   --brief <file>   read the brief from <file> (resolved after --cwd)
+#   --cwd <dir>      enter <dir> before launching, so the session lands in that
+#                    working directory's bucket and loads its context files
+#   --dry-run        print the exact argv and the resolved environment changes;
+#                    exec nothing
+#   -h, --help       this text
+#   --               everything after it goes to pi verbatim
+#
+#   A positional before `--` is the brief. A positional after `--` is refused: pi
+#   consumes the first positional as the initial message, so a passthrough
+#   positional would silently become a first turn ahead of the brief.
+set -euo pipefail
+
+PROG=${0##*/}
+PI_BIN=/usr/bin/pi
+AGENT_DIR=${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}
+FLEET=$AGENT_DIR/extensions/fleet/index.ts
+# The crew tool is registered by the pi-subagents package, not by the fleet extension.
+# pi installs user-scope npm packages under <agent dir>/npm, and the entry file comes from
+# the package's own manifest: the package publishes compiled JavaScript, so a path written
+# down here names a source file upstream may stop shipping and this launch dies for nothing.
+SUBAGENTS_PKG=$AGENT_DIR/npm/node_modules/pi-subagents
+SUBAGENTS_ENTRY=$(jq -r '.pi.extensions[0] // empty' "$SUBAGENTS_PKG/package.json" 2>/dev/null || true)
+[[ -n $SUBAGENTS_ENTRY ]] || SUBAGENTS_ENTRY=index.js
+SUBAGENTS=$SUBAGENTS_PKG/$SUBAGENTS_ENTRY
+CLI_KEYS=$HOME/.local/bin/cli-keys
+# The cache path comes from the script that writes it: a literal here could drift from
+# the writer's path and leave this seed silently doing nothing.
+CACHE=$("$CLI_KEYS" cache-path 2>/dev/null || true)
+FETCH_TIMEOUT=15
+
+# The five inherited identity/binding markers (stripped) and the two configuration
+# variables that must survive a strip (recorded, never touched).
+STRIP=(
+	PI_SUBAGENT
+	PI_SUBAGENT_CHILD
+	PI_SUBAGENT_PARENT_SESSION
+	PI_SUBAGENT_EXTENSION_BINDINGS
+	PI_INTERCOM_SESSION_ID
+)
+SURVIVE=(PI_SUBAGENT_PI_BINARY PI_SUBAGENT_CACHE_RETENTION)
+
+# pi flags that consume the following argument, so a value is not mistaken for a
+# passthrough positional. `--flag=value` forms are self-contained and need no entry.
+# The list mirrors pi's own option table. A flag registered by an EXTENSION is not
+# in that table and cannot be known here, so its value still reads as a positional
+# and the refusal below names it as one.
+VALUE_FLAGS=(
+	--provider --model --api-key --thinking --models --mode
+	--session --session-id --fork --session-dir --name -n
+	--tools -t --exclude-tools -xt
+	-e --extension --skill --prompt-template --theme --use-theme
+	--system-prompt --append-system-prompt --tui-mode
+)
+# Flags whose value is optional: consume the next argument only when it is not
+# itself a flag.
+OPTIONAL_VALUE_FLAGS=(--list-models)
+
+die() {
+	printf '%s: %s\n' "$PROG" "$1" >&2
+	exit "${2:-2}"
+}
+
+usage() {
+	cat <<'EOF'
+usage: pi-foreman [launcher options] [brief] [-- <pi args>]
+       pi-foreman --brief <file> [-- <pi args>]
+
+Launches pi with foreman mode armed, by setting PI_FOREMAN=1 for the fleet
+extension's session_start branch. /foreman is retired; there is no command.
+
+launcher options
+  --brief <file>   read the brief from <file>; resolved after --cwd is applied
+  --cwd <dir>      enter <dir> before launching (same bytes as `cd <dir> && pi-foreman`)
+  --dry-run        print the argv it would exec and the environment it would use;
+                   exec nothing, touch nothing
+  -h, --help       this text
+
+arguments
+  A positional before `--` is the brief (at most one).
+  Everything after `--` goes to pi verbatim; a positional there is refused,
+  because pi would consume it as the initial message ahead of the brief.
+  A brief that starts with `-` must come from --brief <file>.
+  The session display name defaults to `foreman` unless -n/--name is given.
+
+environment
+  stripped: PI_SUBAGENT PI_SUBAGENT_CHILD PI_SUBAGENT_PARENT_SESSION
+            PI_SUBAGENT_EXTENSION_BINDINGS PI_INTERCOM_SESSION_ID
+  set:      PI_FOREMAN=1 (the literal 1, set outright: it overwrites any inherited
+            value, because both readers compare against the exact string "1")
+  kept:     PI_SUBAGENT_PI_BINARY PI_SUBAGENT_CACHE_RETENTION
+  Provider keys are seeded from the cache cli-keys reports (`cli-keys cache-path`),
+  expired ones included: the expiry decides when to refresh, never what may be handed
+  out. Only an absent or unreadable cache leaves the environment untouched.
+EOF
+}
+
+dry_run=0
+brief_file=""
+cwd=""
+brief=""
+has_brief=0
+passthrough=()
+
+while (($#)); do
+	# A pi flag that consumes an argument carries its value into the passthrough,
+	# so the value is never read as the brief.
+	handled=0
+	for flag in "${VALUE_FLAGS[@]}"; do
+		if [[ $1 == "$flag" ]]; then
+			(($# >= 2)) || die "$flag needs a value"
+			passthrough+=("$1" "$2")
+			shift 2
+			handled=1
+			break
+		fi
+	done
+	if ((handled == 1)); then
+		continue
+	fi
+	for flag in "${OPTIONAL_VALUE_FLAGS[@]}"; do
+		if [[ $1 == "$flag" ]]; then
+			passthrough+=("$1")
+			if (($# >= 2)) && [[ $2 != -* ]]; then
+				passthrough+=("$2")
+				shift
+			fi
+			shift
+			handled=1
+			break
+		fi
+	done
+	if ((handled == 1)); then
+		continue
+	fi
+	case $1 in
+	--dry-run) dry_run=1 ;;
+	--export | --export=*)
+		# Exports a session file and launches nothing; a launcher that silently
+		# swallowed it would report a foreman that never started.
+		die "--export writes a session file and launches no session: run pi directly for that"
+		;;
+	--brief)
+		(($# >= 2)) || die "--brief needs a file path"
+		brief_file=$2
+		shift
+		;;
+	--brief=*)
+		brief_file=${1#*=}
+		[[ -n $brief_file ]] || die "--brief needs a file path"
+		;;
+	--cwd)
+		(($# >= 2)) || die "--cwd needs a directory"
+		cwd=$2
+		shift
+		;;
+	--cwd=*)
+		cwd=${1#*=}
+		[[ -n $cwd ]] || die "--cwd needs a directory"
+		;;
+	-h | --help)
+		usage
+		exit 0
+		;;
+	--)
+		shift
+		passthrough+=("$@")
+		break
+		;;
+	-*)
+		passthrough+=("$1")
+		;;
+	*)
+		((has_brief == 0)) || die "one brief only: '$brief' was already given (use --brief for a file)"
+		brief=$1
+		has_brief=1
+		;;
+	esac
+	shift
+done
+
+if [[ -n $brief_file && $has_brief == 1 ]]; then
+	die "give the brief either as a positional or as --brief, not both"
+fi
+
+# A positional after `--` is consumed by pi as its initial message, ahead of the
+# brief: refuse it rather than reinterpret it.
+i=0
+while ((i < ${#passthrough[@]})); do
+	arg=${passthrough[$i]}
+	if [[ $arg == -- ]]; then
+		((i + 1 == ${#passthrough[@]})) || die "a positional after '--' would be pi's initial message, ahead of the brief: pass it as the brief instead"
+		break
+	fi
+	if [[ $arg == @* ]]; then
+		((has_brief == 0 && ${#brief_file} == 0)) || die "'$arg' is pi's file-argument form: its text is concatenated with the brief into ONE message with no separator. Pass the file as --brief instead"
+		((i += 1))
+		continue
+	fi
+	if [[ $arg == -* ]]; then
+		for flag in "${VALUE_FLAGS[@]}"; do
+			if [[ $arg == "$flag" ]]; then
+				((i += 2))
+				continue 2
+			fi
+		done
+		for flag in "${OPTIONAL_VALUE_FLAGS[@]}"; do
+			if [[ $arg == "$flag" ]]; then
+				((i += 1))
+				if ((i < ${#passthrough[@]})) && [[ ${passthrough[$i]} != -* ]]; then
+					((i += 1))
+				fi
+				continue 2
+			fi
+		done
+		((i += 1))
+		continue
+	fi
+	die "a passthrough positional ('$arg') becomes pi's initial message, ahead of the brief: pass it as the brief instead"
+done
+
+[[ -x $PI_BIN ]] || die "no executable pi at $PI_BIN" 4
+
+# The fleet extension is what reads the marker and arms the mode. Absent, or
+# present without the marker reader, the launch would come up as a plain session
+# with no crew tool and nothing would say so.
+[[ -f $FLEET ]] || die "no fleet extension at $FLEET: foreman mode is registered there, so nothing would arm. Point PI_CODING_AGENT_DIR at the agent directory that has it." 3
+grep -q 'process\.env\.PI_FOREMAN' "$FLEET" ||
+	die "$FLEET does not read process.env.PI_FOREMAN, so this launch would start as a plain session (no crew tool, no discipline section). Apply the fleet-side launcher delta first." 3
+
+# The fleet extension drops `subagent` from a foreman's tool set and drives the crew
+# through the pi-subagents package instead, so a launch without that package arms the
+# mode with no way to hire anyone — and the only signal is a notice in a session that,
+# headless, shows it to nobody.
+[[ -f $SUBAGENTS ]] || die "no pi-subagents extension entry at $SUBAGENTS (from $SUBAGENTS_PKG/package.json): the crew tool is registered there while the fleet extension drops its own copy, so this launch would arm foreman mode that cannot hire a worker and would say so only through a notice. Point PI_CODING_AGENT_DIR at the agent directory that has it, or install the package there (pi install npm:pi-subagents)." 3
+
+# --cwd is applied before the brief is resolved, so a relative --brief path means
+# what it means under `cd <dir> && pi-foreman`.
+if [[ -n $cwd ]]; then
+	cd -- "$cwd" || die "cannot enter --cwd directory: $cwd" 4
+fi
+
+if [[ -n $brief_file ]]; then
+	[[ -f $brief_file ]] || die "--brief file not found: $brief_file" 5
+	[[ -r $brief_file ]] || die "--brief file is not readable: $brief_file" 5
+	brief=$(<"$brief_file")
+	has_brief=1
+fi
+
+if ((has_brief == 1)); then
+	if [[ -z ${brief//[[:space:]]/} ]]; then
+		die "the brief is empty: an empty brief is an error, not a request to start without one" 5
+	fi
+	# pi expands prompt templates in an initial message, so a bare slash-word brief
+	# would be dispatched as a command instead of read as text. Paths and prose that
+	# merely contain a slash are unaffected.
+	if [[ $brief =~ ^/[A-Za-z][A-Za-z0-9_:-]*([[:space:]]|$) ]]; then
+		die "the brief starts with a slash command ('${brief%%[[:space:]]*}'): pi would dispatch it instead of reading it as text. Put a word before it, or use --brief." 5
+	fi
+fi
+
+# Strip the inherited crew identity, set the arming marker. Never PI_SUBAGENT.
+stripped_present=()
+for v in "${STRIP[@]}"; do
+	[[ -n ${!v-} ]] && stripped_present+=("$v")
+	unset "$v"
+done
+# SET OUTRIGHT, never merged with an inherited value. Two readers compare against the
+# exact string "1" — the fleet extension's session_start branch and canon's audience
+# test (`PI_FOREMAN === "1"` adds the `foreman` audience, so a session started with
+# the marker reaches the foreman-scoped canon lines). An inherited
+# `PI_FOREMAN=0`, `true`, `yes` or empty value must not be able to leave this launch
+# unarmed: arming is the launcher's whole purpose. The marker is inherited by
+# everything the session spawns, which is why the extension's branch also tests
+# PI_SUBAGENT_CHILD (a plain `pi` started from a worker's shell is not a foreman).
+export PI_FOREMAN=1
+
+# Seed the provider keys from the cache. Names only, ever: no value reaches stdout,
+# argv, or a log. An absent or unreadable cache and a fetch that fails leave the
+# environment exactly as it was; an expired cache is still seeded, because a stale
+# credential resolves a request and no credential does not.
+hydrated=()
+fetch_attempted=0
+apply_cached_keys() {
+	local name value
+	while IFS= read -r -d '' name && IFS= read -r -d '' value; do
+		export "$name=$value"
+		hydrated+=("$name")
+	done < <(jq -j '
+		(.keys // {})
+		| to_entries[]
+		| select(.value | type == "string" and length > 0)
+		| select(.key | test("^[A-Za-z_][A-Za-z0-9_]*$"))
+		| .key, "\u0000", .value, "\u0000"
+	' "$CACHE" 2>/dev/null)
+}
+if command -v jq >/dev/null 2>&1 && [[ -n $CACHE ]]; then
+	apply_cached_keys
+	if ((${#hydrated[@]} == 0)) && [[ -x $CLI_KEYS ]]; then
+		fetch_attempted=1
+		timeout "$FETCH_TIMEOUT" "$CLI_KEYS" >/dev/null 2>&1 </dev/null || true
+		apply_cached_keys
+	fi
+fi
+
+# Default display name, only when the caller named the session themselves.
+name_given=0
+for arg in "${passthrough[@]}"; do
+	case $arg in
+	-n | --name | --name=*) name_given=1 ;;
+	esac
+done
+
+argv=("$PI_BIN")
+((name_given == 1)) || argv+=(--name foreman)
+if ((${#passthrough[@]})); then
+	argv+=("${passthrough[@]}")
+fi
+if ((has_brief == 1)); then
+	argv+=("$brief")
+fi
+
+if ((dry_run == 1)); then
+	printf '%s: dry run — nothing was exec'"'"'d\n' "$PROG"
+	printf '  cwd          : %s\n' "$(pwd)"
+	if [[ -n $cwd ]]; then
+		printf '                 (entered from --cwd %s)\n' "$cwd"
+	fi
+	if ((has_brief == 1)); then
+		printf '  brief        : %d chars from %s\n' "${#brief}" "${brief_file:-a positional}"
+	else
+		printf '  brief        : none (arming only; the session takes no first turn until you type)\n'
+	fi
+	printf '  env strip    : %s\n' "${STRIP[*]}"
+	printf '  env stripped : %s\n' "${stripped_present[*]:-none of them were set}"
+	printf '  env set      : PI_FOREMAN=1\n'
+	printf '  env kept     :'
+	for v in "${SURVIVE[@]}"; do
+		if [[ -n ${!v-} ]]; then
+			printf ' %s=present' "$v"
+		else
+			printf ' %s=absent' "$v"
+		fi
+	done
+	printf '\n'
+	printf '  env never set: PI_SUBAGENT (it flips the canon audience, notifications and the prompt bytes)\n'
+	if command -v jq >/dev/null 2>&1; then
+		printf '  keys seeded  : %d name(s)%s from %s\n' "${#hydrated[@]}" "$( ((fetch_attempted == 1)) && printf ' after a fetch attempt' || true)" "$CACHE"
+		if ((${#hydrated[@]})); then
+			printf '                 %s\n' "${hydrated[*]}"
+		fi
+	fi
+	printf '  fleet        : %s (reads PI_FOREMAN)\n' "$FLEET"
+	printf '  argv         :'
+	printf ' %q' "${argv[@]}"
+	printf '\n'
+	exit 0
+fi
+
+exec "${argv[@]}"

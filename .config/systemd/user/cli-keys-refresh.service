@@ -1,0 +1,22 @@
+[Unit]
+Description=cli-keys — refresh the provider credential cache when connectivity returns
+Documentation=file:/home/tinoy/.local/bin/cli-keys
+# The watcher holds the NetworkManager monitor stream open for the whole login
+# session and does nothing else: each transition it reports runs `cli-keys ensure`,
+# which is a no-op unless the cache is past expiry. Restart=always is what rebuilds a
+# monitor that was killed or died, and the burst limit keeps a crash loop from
+# spinning. Nothing here touches a credential directly — the fetch writes only the
+# cache file, and this unit never reads or prints a value.
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+ExecStart=/home/tinoy/.local/bin/cli-keys watch
+Restart=always
+RestartSec=5
+TimeoutStopSec=10
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=default.target

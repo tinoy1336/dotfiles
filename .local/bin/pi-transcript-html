@@ -1,0 +1,525 @@
+#!/usr/bin/env node
+"use strict";
+/*
+ * pi-transcript-html — render a pi subagent transcript (JSONL) or a plain
+ * output log as a self-contained dark HTML page.
+ *
+ * No third-party dependencies, no network, no external assets: the output
+ * carries inline CSS only and opens offline from any directory.
+ */
+
+const fs = require("fs");
+const path = require("path");
+
+const DEFAULT_MAX_CHARS = 8000;
+const RAW_MAX_CHARS = 500000;
+const BINARY_SNIFF_BYTES = 8192;
+
+const USAGE = `usage: pi-transcript-html <input> [-o <out.html>] [--max-chars N] [--open] [--help]
+
+Render a pi subagent transcript (<runId>_<agent>_transcript.jsonl) as a
+self-contained HTML page. A plain text log (output-<index>.log, or any other
+non-JSONL file) is rendered as raw text with its timestamps intact.
+
+arguments:
+  <input>           transcript JSONL or text log; "-" reads standard input
+
+options:
+  -o, --out <file>  output path (default: input path with an .html extension)
+      --max-chars N per-block character cap before truncation (default ${DEFAULT_MAX_CHARS})
+      --open        xdg-open the written page (never done by default)
+  -h, --help        print this help
+
+exit status:
+  0  page written
+  2  usage error, missing input, or empty input
+  3  unreadable input (permission denied, directory, or binary content)
+
+record shapes understood (anything else renders as an "unparsed record" block):
+  message role=user|assistant|system|toolResult, tool_start, tool_end
+`;
+
+function parseArgs(argv) {
+  const opts = { input: null, out: null, maxChars: DEFAULT_MAX_CHARS, open: false };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === "-h" || a === "--help") return { help: true };
+    else if (a === "-o" || a === "--out") opts.out = argv[++i];
+    else if (a.startsWith("--out=")) opts.out = a.slice(6);
+    else if (a === "--max-chars") opts.maxChars = Number(argv[++i]);
+    else if (a.startsWith("--max-chars=")) opts.maxChars = Number(a.slice(12));
+    else if (a === "--open") opts.open = true;
+    else if (a === "--") { opts.input = argv[++i]; }
+    else if (a.startsWith("-") && a !== "-") throw new UsageError(`unknown option: ${a}`);
+    else if (opts.input === null) opts.input = a;
+    else throw new UsageError(`unexpected extra argument: ${a}`);
+  }
+  if (opts.input === null) throw new UsageError("missing <input>");
+  if (!Number.isFinite(opts.maxChars) || opts.maxChars < 0) throw new UsageError("--max-chars needs a non-negative number");
+  return opts;
+}
+
+class UsageError extends Error {}
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function fmtBytes(n) {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function fmtTime(t) {
+  if (!t) return "";
+  const d = new Date(t);
+  if (Number.isNaN(d.getTime())) return String(t);
+  const pad = (n, w = 2) => String(n).padStart(w, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+function fmtDuration(ms) {
+  if (!Number.isFinite(ms) || ms < 0) return "";
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${s % 60}s`;
+  return `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+
+/* Timestamp of a record: the ISO string when present, else the epoch field. */
+function recordTime(rec) {
+  if (rec && typeof rec.timestamp === "string") return rec.timestamp;
+  if (rec && typeof rec.ts === "number") return new Date(rec.ts).toISOString();
+  return "";
+}
+
+function clampText(text, maxChars) {
+  const s = typeof text === "string" ? text : String(text == null ? "" : text);
+  if (maxChars <= 0 || s.length <= maxChars) return { body: s, truncated: false, total: s.length };
+  return { body: s.slice(0, maxChars), truncated: true, total: s.length };
+}
+
+/* A <pre> block carrying escaped, optionally truncated content. */
+function preBlock(text, maxChars, extraClass) {
+  const { body, truncated, total } = clampText(text, maxChars);
+  const note = truncated
+    ? `<div class="trunc">truncated — showing ${total === body.length ? total : body.length} of ${total} chars</div>`
+    : "";
+  return `<pre class="${extraClass || ""}">${esc(body)}</pre>${note}`;
+}
+
+/* Text parts of a message envelope, by part type. */
+function contentParts(rec) {
+  const msg = rec && rec.message;
+  if (!msg || typeof msg !== "object") return null;
+  const content = msg.content;
+  return Array.isArray(content) ? content : null;
+}
+
+/* ---------------------------------------------------------------- JSONL ---- */
+
+function looksLikeJsonl(lines) {
+  for (const line of lines) {
+    const t = line.trim();
+    if (!t) continue;
+    if (!t.startsWith("{")) return false;
+    try {
+      const o = JSON.parse(t);
+      return o !== null && typeof o === "object" && !Array.isArray(o);
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
+function summariseRun(records) {
+  const info = {
+    runId: "", agent: "", cwd: "", version: "", sources: new Set(), models: new Set(),
+    stopReasons: new Set(), startTime: "", endTime: "", startMs: NaN, endMs: NaN,
+    userMessages: 0, assistantMessages: 0, thinkingParts: 0, systemPromptChars: 0,
+    toolCalls: 0, toolResults: 0, errors: 0, errorCalls: new Set(), unparsed: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 },
+  };
+  for (const { rec, raw } of records) {
+    if (!rec) { info.unparsed.push(raw); continue; }
+    if (!info.runId && rec.runId) info.runId = String(rec.runId);
+    if (!info.agent && rec.agent) info.agent = String(rec.agent);
+    if (!info.cwd && rec.cwd) info.cwd = String(rec.cwd);
+    if (!info.version && rec.version) info.version = String(rec.version);
+    if (rec.source) info.sources.add(String(rec.source));
+    const t = recordTime(rec);
+    if (t) {
+      const ms = Date.parse(t);
+      if (!info.startTime || (Number.isFinite(ms) && ms < info.startMs)) { info.startTime = t; info.startMs = ms; }
+      if (!info.endTime || (Number.isFinite(ms) && ms > info.endMs)) { info.endTime = t; info.endMs = ms; }
+    }
+    if (rec.model) info.models.add(String(rec.model));
+    if (rec.stopReason) info.stopReasons.add(String(rec.stopReason));
+    if (rec.usage && typeof rec.usage === "object") {
+      info.usage.input += rec.usage.input || 0;
+      info.usage.output += rec.usage.output || 0;
+      info.usage.cacheRead += rec.usage.cacheRead || 0;
+      info.usage.cacheWrite += rec.usage.cacheWrite || 0;
+      info.usage.cost += rec.usage.cost || 0;
+    }
+    const parts = contentParts(rec);
+    if (parts) for (const p of parts) {
+      if (p && p.type === "thinking") info.thinkingParts++;
+      if (p && p.type === "toolCall") info.toolCalls++;
+      if (p && p.type === "text" && rec.role === "system") info.systemPromptChars += String(p.text || "").length;
+    }
+    if (rec.recordType === "tool_start") info.toolCalls = Math.max(info.toolCalls, 0);
+    if (rec.role === "toolResult" || rec.recordType === "toolResult") info.toolResults++;
+    if (rec.role === "user") info.userMessages++;
+    if (rec.role === "assistant") info.assistantMessages++;
+    // Tool failures are counted once per call: tool_end and its toolResult both carry isError.
+    if (rec.isError === true && rec.toolCallId) info.errorCalls.add(String(rec.toolCallId));
+    else if (rec.errorMessage) info.errors++;
+    if (rec.role === "assistant" && !rec.errorMessage && rec.stopReason === "error") info.errors++;
+  }
+  info.errors += info.errorCalls.size;
+  return info;
+}
+
+const KNOWN_ROLES = new Set(["user", "assistant", "system", "toolResult"]);
+const KNOWN_RECORD_TYPES = new Set(["message", "tool_start", "tool_end", "toolResult"]);
+
+function renderRecordBlock(rec, raw, index, ctx) {
+  const id = `r${index}`;
+  const ts = recordTime(rec);
+  const timeTag = ts ? `<span class="ts" title="${esc(ts)}">${esc(fmtTime(ts))}</span>` : "";
+  const known = rec && (KNOWN_RECORD_TYPES.has(String(rec.recordType)) || KNOWN_ROLES.has(String(rec.role)));
+
+  if (!rec || !known) {
+    const label = rec ? `unparsed record · recordType=${esc(String(rec.recordType))}` : "unparsed record · not JSON";
+    const shown = rec ? JSON.stringify(rec, null, 1) : raw;
+    return block(id, "unparsed", timeTag, label, `<div class="rawline">${preBlock(shown, ctx.maxChars, "")}</div>`);
+  }
+
+  const type = String(rec.recordType || (rec.role === "toolResult" ? "toolResult" : "message"));
+
+  if (type === "tool_start") {
+    const name = String(rec.toolName || "?");
+    const args = typeof rec.argsPayload === "string" && rec.argsPayload.trim() ? rec.argsPayload : (rec.argsPreview || "");
+    const end = ctx.ends.get(rec.toolCallId);
+    ctx.toolIndex.add(name, id);
+    const badges = [
+      rec.toolCallId ? `<span class="badge dim" title="tool call id">${esc(String(rec.toolCallId).slice(0, 24))}</span>` : "",
+      end && end.isError ? `<span class="badge err">error</span>` : "",
+      end && Number.isFinite(end.ms) ? `<span class="badge dim">${esc(fmtDuration(end.ms))}</span>` : "",
+    ].join("");
+    return block(id, "call", timeTag, `tool call · <span class="name">${esc(name)}</span>`, badges + preBlock(args, ctx.maxChars, "args"));
+  }
+
+  if (type === "tool_end") {
+    if (ctx.ends.has(rec.toolCallId)) return ""; // folded into its tool_start block
+    return block(id, "end", timeTag, `tool end · <span class="name">${esc(String(rec.toolName || "?"))}</span>`,
+      `<span class="badge dim">no matching call</span>`);
+  }
+
+  if (rec.role === "toolResult" || rec.recordType === "toolResult") {
+    const name = String(rec.toolName || "?");
+    const text = typeof rec.text === "string" ? rec.text : contentText(rec);
+    const chars = text.length;
+    ctx.toolIndex.add(name, id);
+    const flags = [
+      rec.isError ? `<span class="badge err">error</span>` : "",
+      rec.outputTruncated ? `<span class="badge warn">output truncated by pi</span>` : "",
+    ].join("");
+    return block(id, "result", timeTag,
+      `tool result · <span class="name">${esc(name)}</span> · <span class="size">${esc(fmtBytes(chars))}</span>`,
+      flags + `<details><summary>show result (${esc(fmtBytes(chars))})</summary>${preBlock(text, ctx.maxChars, "")}</details>`);
+  }
+
+  if (rec.role === "system") {
+    const text = contentText(rec) || (typeof rec.text === "string" ? rec.text : "") || JSON.stringify(rec.message || {});
+    return block(id, "system", timeTag, `system prompt · <span class="size">${esc(fmtBytes(text.length))}</span>`,
+      `<details><summary>show system prompt</summary>${preBlock(text, ctx.maxChars, "")}</details>`);
+  }
+
+  // Any message record: render its content parts in order.
+  const parts = contentParts(rec);
+  const role = String(rec.role || "?");
+  const chunks = [];
+  if (parts) {
+    for (const p of parts) {
+      if (!p || typeof p !== "object") continue;
+      if (p.type === "text" && String(p.text || "").length) {
+        chunks.push(preBlock(p.text, ctx.maxChars, "text"));
+      } else if (p.type === "thinking" && String(p.thinking || "").length) {
+        const len = String(p.thinking).length;
+        chunks.push(`<details class="think"><summary>thinking · ${esc(fmtBytes(len))}</summary>${preBlock(p.thinking, ctx.maxChars, "")}</details>`);
+      } else if (p.type === "toolCall") {
+        // tool_start records render the call with its arguments and duration;
+        // the inline part is only drawn when the transcript carries no tool_start.
+        if (ctx.hasToolStart) continue;
+        const name = String(p.name || "?");
+        ctx.toolIndex.add(name, id);
+        chunks.push(`<div class="inlinecall"><span class="kind">tool call</span> <span class="name">${esc(name)}</span>${preBlock(JSON.stringify(p.arguments ?? {}, null, 2), ctx.maxChars, "args")}</div>`);
+      } else if (p.type === "image") {
+        chunks.push(`<div class="badge dim">image part (${esc(String(p.mimeType || "unknown type"))}, not embedded)</div>`);
+      } else {
+        chunks.push(`<div class="badge warn">content part type=${esc(String(p.type || "?"))} — not rendered</div>${preBlock(JSON.stringify(p), ctx.maxChars, "")}`);
+      }
+    }
+  } else if (typeof rec.text === "string" && rec.text.length) {
+    chunks.push(preBlock(rec.text, ctx.maxChars, "text"));
+  } else {
+    chunks.push(preBlock(JSON.stringify(rec.message ?? rec), ctx.maxChars, ""));
+  }
+
+  if (rec.errorMessage) chunks.unshift(`<div class="badge err">error: ${esc(String(rec.errorMessage))}</div>`);
+  const meta = [
+    rec.model ? `<span class="badge dim">${esc(String(rec.model))}</span>` : "",
+    rec.stopReason ? `<span class="badge dim">stop: ${esc(String(rec.stopReason))}</span>` : "",
+    rec.usage ? `<span class="badge dim">${esc(String(rec.usage.input || 0))} in / ${esc(String(rec.usage.output || 0))} out</span>` : "",
+  ].join("");
+  return block(id, role, timeTag, `${esc(role)} message`, meta + chunks.join("\n"));
+}
+
+function contentText(rec) {
+  const parts = contentParts(rec);
+  if (!parts) return "";
+  return parts.filter((p) => p && p.type === "text").map((p) => String(p.text || "")).join("\n");
+}
+
+function block(id, kind, timeTag, title, body) {
+  return `<section class="ev ev-${esc(kind)}" id="${esc(id)}">
+<div class="evhead">${timeTag}<span class="kind">${esc(kind.replace(/^toolResult$/, "result"))}</span><span class="title">${title}</span></div>
+${body}
+</section>`;
+}
+
+/* ------------------------------------------------------------- page shell -- */
+
+const STYLE = `
+:root { color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; padding: 0 0 4rem; background: #14161a; color: #d6dae0;
+  font: 13px/1.55 ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Consolas, monospace; }
+a { color: #7fb2ff; text-decoration: none; }
+a:hover { text-decoration: underline; }
+header.page { padding: 1rem 1.25rem; background: #1b1f26; border-bottom: 1px solid #2c323c; }
+header.page h1 { margin: 0 0 .5rem; font-size: 15px; font-weight: 600; }
+table.meta { border-collapse: collapse; font-size: 12px; }
+table.meta td { padding: 1px 12px 1px 0; vertical-align: top; }
+table.meta td.k { color: #8b93a1; white-space: nowrap; }
+nav.toc { padding: 1rem 1.25rem; background: #171b21; border-bottom: 1px solid #2c323c; font-size: 12px; }
+nav.toc h2 { margin: 0 0 .5rem; font-size: 12px; font-weight: 600; color: #8b93a1; text-transform: uppercase; letter-spacing: .06em; }
+ul.toc { list-style: none; margin: 0; padding: 0; columns: 3; column-gap: 2rem; }
+@media (max-width: 900px) { ul.toc { columns: 1; } }
+ul.toc li { break-inside: avoid; margin: 0 0 2px; }
+main { padding: 1rem 1.25rem; max-width: 1200px; }
+section.ev { margin: 0 0 .75rem; padding: .5rem .75rem; background: #1a1e24; border: 1px solid #262c35; border-left: 3px solid #3a4250; border-radius: 4px; }
+section.ev-user { border-left-color: #6ea8fe; }
+section.ev-assistant { border-left-color: #7ddc9a; }
+section.ev-think, section.ev-system { border-left-color: #6b7280; }
+section.ev-call { border-left-color: #e3b341; }
+section.ev-result, section.ev-toolResult { border-left-color: #c792ea; }
+section.ev-unparsed { border-left-color: #f85149; }
+section.ev-end { border-left-color: #4a5261; }
+.evhead { display: flex; flex-wrap: wrap; gap: .5rem; align-items: baseline; margin-bottom: .35rem; }
+.evhead .ts { color: #6f7785; font-size: 11px; }
+.evhead .kind { color: #98a1b0; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+.evhead .title { color: #e6e9ee; }
+.name { color: #ffd479; font-weight: 600; }
+.size { color: #8b93a1; }
+pre { margin: .35rem 0 0; padding: .5rem .6rem; background: #101317; border: 1px solid #232933; border-radius: 3px;
+  white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; max-height: 60vh; overflow: auto; }
+pre.args { background: #14171c; }
+details { margin: .35rem 0 0; }
+details > summary { cursor: pointer; color: #9aa4b2; font-size: 12px; padding: 2px 0; }
+details[open] > summary { color: #cdd4de; }
+.badge { display: inline-block; margin: 0 .35rem .2rem 0; padding: 0 6px; border-radius: 9px; font-size: 11px;
+  border: 1px solid #333a45; background: #20252d; color: #b6bdc9; }
+.badge.err { border-color: #6b2a2a; background: #3a1d1d; color: #ff9b93; }
+.badge.warn { border-color: #6b5a1f; background: #38301a; color: #ffd479; }
+.badge.dim { color: #8b93a1; }
+.trunc { margin-top: .2rem; color: #d0a24c; font-size: 11px; }
+.inlinecall { margin-top: .35rem; }
+.rawline pre { border-color: #5a2a2a; }
+footer.page { padding: 1rem 1.25rem; color: #6f7785; font-size: 11px; }
+`;
+
+function renderJsonl(records, ctx, srcLabel) {
+  const info = summariseRun(records);
+  const body = [];
+  records.forEach((entry, i) => {
+    const html = renderRecordBlock(entry.rec, entry.raw, i, ctx);
+    if (html) body.push(html);
+  });
+  const byTool = [...ctx.toolIndex.counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const toc = [];
+  if (byTool.length) {
+    toc.push(`<h2>tools (${byTool.length})</h2><ul class="toc">`);
+    for (const [name, e] of byTool) toc.push(`<li><a href="#${esc(e.first)}">${esc(name)}</a> <span class="size">${e.count}${e.errors ? ` · ${e.errors} err` : ""}</span></li>`);
+    toc.push("</ul>");
+  }
+  const meta = [
+    ["run id", info.runId || "(none)"],
+    ["agent", info.agent || "(none)"],
+    ["cwd", info.cwd || "(none)"],
+    ["started", info.startTime ? `${fmtTime(info.startTime)} (${info.startTime})` : "(none)"],
+    ["ended", info.endTime ? `${fmtTime(info.endTime)} (${info.endTime})` : "(none)"],
+    ["duration", fmtDuration(info.endMs - info.startMs) || "(unknown)"],
+    ["records", `${records.length} (${records.filter((r) => !r.rec).length} unparsed)`],
+    ["messages", `${info.userMessages} user · ${info.assistantMessages} assistant · ${info.toolResults} results · ${info.thinkingParts} thinking`],
+    ["tool calls", `${ctx.callCount} (${byTool.length} distinct)`],
+    ["errors", `${info.errors}`],
+    ["models", [...info.models].join(", ") || "(none)"],
+    ["stop reasons", [...info.stopReasons].join(", ") || "(none)"],
+    ["usage", info.usage.input || info.usage.output || info.usage.cost
+      ? `${info.usage.input} in / ${info.usage.output} out / ${info.usage.cacheRead} cache read — cost ${info.usage.cost}`
+      : "(none)"],
+    ["source", srcLabel],
+  ].map(([k, v]) => `<tr><td class="k">${esc(k)}</td><td>${esc(String(v))}</td></tr>`).join("");
+
+  return pageShell(`transcript ${info.runId || path.basename(srcLabel)}`,
+    `<header class="page"><h1>${esc(info.runId || path.basename(srcLabel))}</h1><table class="meta">${meta}</table></header>
+<nav class="toc">${toc.join("\n") || "<h2>index</h2><p class=\"size\">no tool calls in this transcript</p>"}</nav>
+<main>${body.join("\n")}</main>`);
+}
+
+function renderRawText(text, ctx, srcLabel) {
+  const { body, truncated, total } = clampText(text, Math.max(ctx.maxChars, RAW_MAX_CHARS));
+  const lines = body.split("\n").length;
+  const note = truncated ? `<p class="trunc">truncated — showing ${body.length} of ${total} chars</p>` : "";
+  return pageShell(`log ${path.basename(srcLabel)}`,
+    `<header class="page"><h1>${esc(path.basename(srcLabel))}</h1><table class="meta">
+<tr><td class="k">format</td><td>plain text (not JSONL)</td></tr>
+<tr><td class="k">source</td><td>${esc(srcLabel)}</td></tr>
+<tr><td class="k">size</td><td>${esc(fmtBytes(total))}, ${lines} lines</td></tr>
+</table></header>${note}<main>${preBlock(body, Math.max(ctx.maxChars, RAW_MAX_CHARS), "")}</main>`);
+}
+
+function pageShell(title, inner) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${esc(title)}</title>
+<style>${STYLE}</style>
+</head>
+<body>
+${inner}
+<footer class="page">rendered by pi-transcript-html — self-contained page, no external assets</footer>
+</body>
+</html>
+`;
+}
+
+/* ------------------------------------------------------------------ main --- */
+
+function readInput(input) {
+  if (input === "-") {
+    let buf;
+    try { buf = fs.readFileSync(0); } catch (e) { throw new InputError(`cannot read standard input: ${e.message}`); }
+    return { buf, label: "(stdin)" };
+  }
+  let st;
+  try { st = fs.statSync(input); } catch (e) { throw new InputError(`cannot read input: ${input}: ${e.message}`, 2); }
+  if (st.isDirectory()) throw new InputError(`input is a directory: ${input}`, 3);
+  if (st.size === 0) throw new InputError(`input is empty: ${input}`, 2);
+  let buf;
+  try { buf = fs.readFileSync(input); } catch (e) { throw new InputError(`cannot read input: ${input}: ${e.message}`, 3); }
+  return { buf, label: path.resolve(input) };
+}
+
+class InputError extends Error {
+  constructor(message, code) { super(message); this.code = code; }
+}
+
+function checkBinary(buf, label) {
+  const head = buf.subarray(0, BINARY_SNIFF_BYTES);
+  for (let i = 0; i < head.length; i++) if (head[i] === 0) throw new InputError(`input looks binary (NUL byte at offset ${i}): ${label}`, 3);
+}
+
+function main() {
+  let opts;
+  try { opts = parseArgs(process.argv.slice(2)); } catch (e) {
+    process.stderr.write(`pi-transcript-html: ${e.message}\n\n${USAGE}`);
+    return 2;
+  }
+  if (opts.help) { process.stdout.write(USAGE); return 0; }
+
+  let buf, label;
+  try {
+    ({ buf, label } = readInput(opts.input));
+    checkBinary(buf, label);
+  } catch (e) {
+    process.stderr.write(`pi-transcript-html: ${e.message}\n`);
+    return e.code === 3 ? 3 : 2;
+  }
+
+  const text = buf.toString("utf8");
+  if (text.replace(/\uFFFD/g, "").length && text.split("\uFFFD").length > 100) {
+    process.stderr.write(`pi-transcript-html: input is not valid UTF-8 text: ${label}\n`);
+    return 3;
+  }
+  if (!text.trim()) {
+    process.stderr.write(`pi-transcript-html: input has no content: ${label}\n`);
+    return 2;
+  }
+
+  const rawLines = text.split("\n").filter((l) => l.trim());
+  const ctx = { maxChars: opts.maxChars, ends: new Map(), hasToolStart: false, toolIndex: { counts: new Map(), add(name, id) { const e = this.counts.get(name) || { count: 0, first: id, errors: 0 }; e.count++; this.counts.set(name, e); }, markError(name) { const e = this.counts.get(name); if (e) e.errors++; } }, callCount: 0 };
+
+  let html;
+  if (looksLikeJsonl(rawLines)) {
+    const records = [];
+    for (const line of rawLines) {
+      try { records.push({ rec: JSON.parse(line), raw: line }); }
+      catch { records.push({ rec: null, raw: line }); }
+    }
+    // Pre-pass: fold tool_end records into their tool_start block and tally errors.
+    const starts = new Map();
+    for (const r of records) if (r.rec && r.rec.recordType === "tool_start" && r.rec.toolCallId) starts.set(r.rec.toolCallId, r.rec);
+    ctx.hasToolStart = starts.size > 0;
+    for (const r of records) {
+      const rec = r.rec;
+      if (!rec) continue;
+      if (rec.recordType === "tool_start") ctx.callCount++;
+      if (rec.recordType === "tool_end" && rec.toolCallId) {
+        const start = starts.get(rec.toolCallId);
+        if (start) {
+          const ms = Date.parse(recordTime({ timestamp: rec.timestamp, ts: rec.ts })) - Date.parse(recordTime({ timestamp: start.timestamp, ts: start.ts }));
+          ctx.ends.set(rec.toolCallId, { isError: rec.isError === true, ms });
+          if (rec.isError === true && rec.toolName) ctx.toolIndex.markError(String(rec.toolName));
+        }
+      }
+      if (rec.recordType === "toolResult" && rec.isError === true) ctx.toolIndex.markError(String(rec.toolName || ""));
+    }
+    html = renderJsonl(records, ctx, label);
+  } else {
+    html = renderRawText(text, ctx, label);
+  }
+
+  const out = opts.out || defaultOut(opts.input);
+  try {
+    fs.mkdirSync(path.dirname(path.resolve(out)), { recursive: true });
+    fs.writeFileSync(out, html);
+  } catch (e) {
+    process.stderr.write(`pi-transcript-html: cannot write ${out}: ${e.message}\n`);
+    return 3;
+  }
+  const size = fs.statSync(out).size;
+  const kind = looksLikeJsonl(rawLines) ? `${rawLines.length} records` : "raw text";
+  process.stdout.write(`${path.resolve(out)} (${fmtBytes(size)}, ${kind})\n`);
+  if (opts.open) {
+    const { spawnSync } = require("child_process");
+    const r = spawnSync("xdg-open", [path.resolve(out)], { stdio: "ignore" });
+    if (r.error) process.stderr.write(`pi-transcript-html: xdg-open failed: ${r.error.message}\n`);
+  }
+  return 0;
+}
+
+function defaultOut(input) {
+  if (input === "-") return path.join(process.cwd(), "transcript.html");
+  const parsed = path.parse(input);
+  return path.join(parsed.dir, `${parsed.name}.html`);
+}
+
+process.exit(main());

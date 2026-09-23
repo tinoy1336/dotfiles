@@ -1,0 +1,133 @@
+/* Frosted-glass launcher, matching the AGS dock's menu material
+   (appearance.menu: rgb 0.92/0.92/0.92 at alpha 0.42, radius 18, padding 8).
+   Blur comes from the Hyprland layer rule on namespace "rofi" (see
+   ~/.config/hypr/hyprland.lua) — window.transparency "real" keeps the
+   surface ARGB so the compositor frost shows through. */
+* {
+    bg0:    #EBEBEB6B;   /* window panel — dock menu bg (0.42) */
+    bg1:    #EBEBEB33;   /* inputbar / message — unfilled track (0.20) */
+    bg2:    #EBEBEB33;
+    bg3:    #EBEBEB4D;   /* selected row — dock rowActive (0.30) */
+    fg0:    #E6E6E6;     /* dock text (0.9) */
+    fg1:    #FFFFFF;
+    fg2:    #A6A6A6;     /* prompt / unselected rows — dock muted text */
+    fg3:    #A6A6A680;   /* placeholder — muted, dimmer */
+    font:   "JetBrainsMono Nerd Font 10";
+
+    background-color:   transparent;
+    text-color:         @fg0;
+
+    margin:     0px;
+    padding:    0px;
+    spacing:    0px;
+}
+
+configuration {
+    /* Name only — no (generic) suffix in the drun list. */
+    drun-display-format: "{name}";
+}
+
+window {
+    location:       center;
+    width:          360;
+    border-radius:  14px;
+    transparency:   "real";
+
+    background-color:   @bg0;
+}
+
+mainbox {
+    padding:    6px;
+}
+
+inputbar {
+    background-color:   @bg1;
+
+    border:         0px;
+    border-radius:  12px;
+
+    padding:    6px 12px;
+    spacing:    6px;
+    children:   [ prompt, entry ];
+}
+
+prompt {
+    text-color: @fg2;
+}
+
+entry {
+    placeholder:        "Search";
+    placeholder-color:  @fg3;
+}
+
+message {
+    margin:             9px 0 0;
+    border-radius:      12px;
+    background-color:   @bg2;
+}
+
+textbox {
+    padding:    6px 18px;
+}
+
+listview {
+    background-color:   transparent;
+
+    margin:     9px 0 0;
+    lines:      6;
+    columns:    1;
+
+    fixed-height: false;
+}
+
+/* Subtle scrollbar, mirroring the dock's menu scrollbar
+   (rgba(255,255,255,0.22) slider on transparent track). */
+listview scrollbar {
+    background-color:   transparent;
+    border:             0px;
+}
+
+listview scrollbar handle {
+    background-color:   #EBEBEB38;
+}
+
+element {
+    padding:        6px 12px;
+    spacing:        6px;
+    border-radius:  12px;
+}
+
+/* Rows sit at the dock's muted tier on a soft dark scrim so the bright
+   wallpaper can't wash the list out. These MUST match the default theme's
+   state-combo specificity (normal.normal / normal.active / ...): rofi's
+   state resolution gives single-state rules (element normal) LOWER priority
+   than the default theme's two-state rules, which silently override them
+   (that's how opaque Solarized-beige rows got through earlier). */
+element normal.normal, element alternate.normal {
+    background-color:   rgba(0, 0, 0, 0.18);
+    text-color:         @fg2;
+}
+
+element normal.active, element alternate.active {
+    background-color:   rgba(0, 0, 0, 0.18);
+    text-color:         @fg1;
+}
+
+element normal.urgent, element alternate.urgent {
+    background-color:   rgba(0, 0, 0, 0.18);
+    text-color:         @fg2;
+}
+
+element selected normal, element selected active {
+    background-color:   @bg3;
+    text-color:         @fg1;
+}
+
+element-icon {
+    size:           1em;
+    vertical-align: 0.5;
+}
+
+element-text {
+    text-color: inherit;
+}

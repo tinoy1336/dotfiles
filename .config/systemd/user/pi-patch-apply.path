@@ -1,0 +1,17 @@
+[Unit]
+Description=Watch the pi npm tree for package rewrites and re-apply the local patches
+Documentation=file:/home/tinoy/.pi/agent/patches/README.md
+# npm rewriting a package directory changes the mtime of that directory and of its
+# parents, which is what these watches catch. One restore per rewrite: the applier's
+# own write triggers at most one further run, and that run is a no-op because the
+# marker is present again.
+
+[Path]
+PathModified=/home/tinoy/.pi/agent/npm/node_modules
+PathModified=/home/tinoy/.pi/agent/npm/node_modules/@juicesharp
+PathModified=/home/tinoy/.pi/agent/npm/node_modules/@juicesharp/rpiv-todo
+PathModified=/home/tinoy/.pi/agent/npm/node_modules/pi-subagents
+Unit=pi-patch-apply.service
+
+[Install]
+WantedBy=default.target

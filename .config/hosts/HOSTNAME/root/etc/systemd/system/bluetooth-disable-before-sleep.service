@@ -1,0 +1,13 @@
+[Unit]
+Description=Bluetooth disable before sleep
+Before=sleep.target
+StopWhenUnneeded=yes
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/bt-sleep.sh start
+ExecStop=/usr/local/sbin/bt-sleep.sh stop
+
+[Install]
+WantedBy=sleep.target

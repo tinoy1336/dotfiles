@@ -1,0 +1,300 @@
+# =============================================================================
+# $HOME dotfiles repo — work tree /home/tinoy, git metadata ~/.dotfiles.git
+#
+# WHITELIST STYLE. Nothing in $HOME is tracked unless it is re-included below.
+# Written 2026-09-15; re-verified 2026-09-23 against the live tree. The plan it
+# belongs to is ~/dev/plans/migration-plan.md, section 5. This file is
+# protective: nothing is staged, no repository is initialised by it. Delete it
+# if the approach is rejected.
+#
+# Verify before the first `git add` (plan section 7):
+#   dotfiles check-ignore -v <path>   # names the pattern hiding a path
+#   dotfiles add -n -A | head         # dry run: what would actually be added
+#
+# RULE FOR FUTURE EDITS: never add a `!` line for a cache, an application
+# profile, a credential store or a transcript directory. Re-include the
+# narrowest path that carries user intent.
+# =============================================================================
+
+# --- 1. root whitelist: ignore every home-root entry --------------------------
+/*
+
+# --- 2. shell, editor, identity, home-root scripts (hand-written) ------------
+!/.zshrc
+!/.zshenv
+!/.bashrc
+!/.bash_profile
+!/.bash_logout
+!/.tmux.conf
+!/.gitconfig
+# this file: without it a clone or a restore has no ignore rule at all, and the
+# next blanket `git add` there is the unprotected sweep section 7 forbids
+!/.gitignore
+!/.gtkrc-2.0
+# NOT re-included, so ignored by /*: .zsh_history .bash_history
+# .python_history .node_repl_history .viminfo .wget-hsts .pulse-cookie
+# .zcompdump-*  (histories and completion dumps)
+
+# --- 3. ~/.config: re-include the dir, hide its children, re-include intent ---
+!/.config/
+/.config/*
+# the extracted project's LIVE CONFIG — nine flat files, the machine's values.
+# The project's code lives in ~/dev/tinshell (Part I) and is not re-included.
+!/.config/tinshell/
+# hand-written tool and desktop config
+!/.config/hypr/
+!/.config/kitty/
+!/.config/haruna/
+!/.config/mpv/
+!/.config/rofi/
+!/.config/swaync/
+!/.config/yad/
+!/.config/htop/
+!/.config/yay/
+!/.config/easyeffects/
+!/.config/tlpui/
+!/.config/qalculate/
+!/.config/xdg-desktop-portal/
+!/.config/wireplumber/
+!/.config/pi-caveman/
+!/.config/gtk-3.0/
+!/.config/gtk-4.0/
+!/.config/systemd/
+# per-machine host declarations: the units a machine enables and the
+# root-scoped files it installs, applied by ~/.local/bin/host-apply. One
+# directory per machine; enablement links are gitignored, so this is the only
+# record of which units a rebuild has to re-enable
+!/.config/hosts/
+!/.config/environment.d/
+!/.config/autostart/
+!/.config/git/
+# hand-written single files
+!/.config/mimeapps.list
+!/.config/user-dirs.dirs
+!/.config/pavucontrol.ini
+!/.config/kwalletrc
+!/.config/youtube-music-flags.conf
+
+# --- 4. ~/.local: only bin/ (user-owned scripts) ------------------------------
+!/.local/
+/.local/*
+!/.local/bin/
+/.local/bin/__pycache__/
+# these three are absolute symlinks into the project tree; ~/dev/tinshell/setup.sh
+# recreates them, so the links themselves are not committed
+/.local/bin/tinshell-host
+/.local/bin/tinshell-route
+/.local/bin/tinshell-mode
+
+# --- 5. hygiene inside every re-included tree ---------------------------------
+**/node_modules/
+__pycache__/
+*.pyc
+*.swp
+*.swo
+*~
+*.tmp
+*.log
+*.bak
+*.bak-*
+.ags-*
+.Trash-*
+
+# --- 6. HARD DENIES — redundant with /* on purpose: they must survive a future
+#        edit that re-includes a parent. DO NOT REMOVE. ------------------------
+# 6a. credentials, key material, wallets, agent auth, clipboard history
+/.gnupg/
+/.pki/
+/.mitmproxy/
+/.android/
+/.pi/
+/.pi-subagents/
+/.pi-lens/
+/.claude.json
+/.claude.lock
+/.claude/
+/.codex/
+/.copilot/
+/.agents/
+/.cc-safety-net/
+/.zcode/
+/.cloakbrowser/
+/.joinnow/
+/.proxy/
+/.nv/
+/.presage/
+/.config/kdeconnect/
+/.config/libaccounts-glib/
+/.config/me.proton.authenticator/
+/.config/pulse/
+/.pulse-cookie
+/.npmrc
+/.config/gh/
+/.local/share/cli-keys/
+/.local/share/proton-pass-cli/
+/.local/share/keyrings/
+/.local/share/kwalletd/
+/.local/share/sudo-approve/
+/.local/share/clipboard/
+/.local/share/ags-home-backups/
+
+# 6b. session transcripts and history files
+/.pi/agent/sessions/
+/.zsh_history
+/.bash_history
+/.python_history
+/.node_repl_history
+/.viminfo
+/.wget-hsts
+/.zcompdump-*
+
+# 6c. generated caches, package managers, language toolchains
+/.cache/
+/.cargo/
+/.rustup/
+/.npm/
+/.bun/
+/.yarn/
+/.dotnet/
+/.nuget/
+/.electron-gyp/
+/.vscode/
+/.vscode-shared/
+/.biome/
+/.semgrep/
+/.opengrep/
+/.var/
+
+# 6d. application data that embeds tokens
+/.config/Claude/
+/.config/Claude-3p/
+/.config/Code/
+/.config/chromium/
+/.config/google-chrome/
+/.config/mozilla/
+/.mozilla/
+/.config/vesktop/
+/.config/Signal/
+/.config/nora/
+/.config/opencode/
+/.config/ZCode/
+/.config/Electron/
+/.config/YouTube Music/
+/.config/YouTube Music Desktop App/
+/.config/sublime-text/
+/.config/unity3d/
+/.config/NoteBook/
+/NoteBook/
+/.wine/
+/.steam/
+/.steampath
+/.steampid
+/.SoulseekQt/
+/.foobar2000/
+/.mp3tag/
+/.hplip/
+
+# 6e. the project's vendored and generated trees are its own repository's business
+# (section 4.5). They live under ~/dev/tinshell, which the /dev/ rule ignores. These two
+# are different directories that still exist:
+/.config/ags-backup-popover/
+/.config/ags-archive-internal-panel/
+
+# 6f. machine-generated application state
+/.local/state/
+/.local/share/
+/.local/pi/
+/.local/lib/
+/.config/dconf/
+/.config/session/
+/.config/menus/
+/.config/waybar/
+/.config/kate/
+/.config/plasma-workspace/
+/.config/kdedefaults/
+/.config/KDE/
+/.config/procps/
+/.config/qtvirtualkeyboard/
+/.config/go/
+/.config/yarn/
+/.config/nextjs-nodejs/
+/.config/simple-update-notifier/
+/.config/vscode-vibrancy-continued/
+/.config/YoutubeDownloader
+/.config/EOS-greeter.conf
+/.config/reflector-simple-free-params.txt
+/.config/user-dirs.locale
+/.config/welcome_news_latest_date_file
+/.config/trashrc
+/.config/baloofilerc
+# note CONTENT (a sticky-notes app's stored text and window geometry), not tool
+# configuration. Ruled out of scope with ~/.local/share/notes/ in plan section
+# 3.7; to promote both, add the re-include chain named there
+/.config/sticky/
+# enable-symlinks recreated by `systemctl --user enable`, with absolute targets
+# outside the work tree (one points into /usr/lib/systemd/user)
+/.config/systemd/user/*.wants/
+
+# 6g. KDE / Plasma leftovers — excluded pending a plasma-removal decision
+/.config/kdeglobals
+/.config/kglobalshortcutsrc
+/.config/kcminputrc
+/.config/kwinrc
+/.config/kwinrulesrc
+/.config/kwinoutputconfig.json
+/.config/kscreenlockerrc
+/.config/ktimezonedrc
+/.config/kactivitymanagerdrc
+/.config/kactivitymanagerd-statsrc
+/.config/kded5rc
+/.config/kded6rc
+/.config/kconf_updaterc
+/.config/kmenueditrc
+/.config/konsolerc
+/.config/konsolesshconfig
+/.config/kwriterc
+/.config/katerc
+/.config/katevirc
+/.config/kate-externaltoolspluginrc
+/.config/filetypesrc
+/.config/dolphinrc
+/.config/arkrc
+/.config/gwenviewrc
+/.config/okularrc
+/.config/okularpartrc
+/.config/spectaclerc
+/.config/partitionmanagerrc
+/.config/systemmonitorrc
+/.config/plasma*rc
+/.config/plasma-nm
+/.config/powerdevilrc
+/.config/powermanagementprofilesrc
+/.config/gtkrc
+/.config/gtkrc-2.0
+/.config/QtProject.conf
+/.config/Trolltech.conf
+
+# 6i. stale-but-tempting superseded copies
+/.local/bin/screenshot-region.bak-predegenerate
+
+# 6j. user data, media and other work trees at the home root
+/aur/
+/dev/
+/downloads/
+/documents/
+/desktop/
+/Music/
+/Pictures/
+/pictures/
+/wallpapers/
+/Notes/
+/ZCodeProject/
+
+# --- 7. OPTIONAL: promote these if they are part of the restore point --------
+# Each line is a deliberate exception. The four root ags-overnight-* report
+# files, handoffs/ and files-redesign/ are working documents and are left
+# excluded by /* on purpose.
+# !/handoffs/
+# !/wallpapers/
+# !/documents/
+# !/*.md

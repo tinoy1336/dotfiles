@@ -1,0 +1,75 @@
+#!/usr/bin/env node
+// verify-cost.mjs — tariff windows, per-message pricing, and a crossing session.
+process.env.PI_SESSION_ID = "cost-test";
+const mod = await import("file://" + process.env.HOME + "/.pi/agent/extensions/deepseek-cost.ts");
+
+// 2026-09-11 is a Friday; BJT = UTC+8.
+const cases = [
+  ["2026-09-11T00:59:00Z", "valley", "08:59 BJT Fri — just before peak"],
+  ["2026-09-11T01:00:00Z", "peak", "09:00 BJT Fri — peak starts"],
+  ["2026-09-11T03:59:00Z", "peak", "11:59 BJT Fri"],
+  ["2026-09-11T04:00:00Z", "valley", "12:00 BJT Fri — lunch gap"],
+  ["2026-09-11T05:59:00Z", "valley", "13:59 BJT Fri"],
+  ["2026-09-11T06:00:00Z", "peak", "14:00 BJT Fri — afternoon peak"],
+  ["2026-09-11T10:00:00Z", "valley", "18:00 BJT Fri — after peak"],
+  ["2026-09-12T02:00:00Z", "valley", "10:00 BJT Sat — weekend"],
+  ["2026-09-14T02:00:00Z", "peak", "10:00 BJT Mon — weekend over"],
+];
+console.log("== window boundaries ==");
+let bad = 0;
+for (const [iso, want, label] of cases) {
+  const got = mod.windowAt(new Date(iso));
+  if (got !== want) bad++;
+  console.log(`  ${got === want ? "ok  " : "FAIL"} ${got.padEnd(6)} ${label}`);
+}
+console.log(bad ? `  ${bad} boundary FAILURES` : "  all boundaries correct");
+
+console.log("\n== unit prices (per 1M tokens) ==");
+const U = { input: 1_000_000 };
+const O = { output: 1_000_000 };
+const C = { cacheRead: 1_000_000 };
+const peak = new Date("2026-09-11T01:00:00Z");
+const valley = new Date("2026-09-11T10:00:00Z");
+console.log(`  1M cache-miss input  valley ¥${mod.costOf(U, valley)}  peak ¥${mod.costOf(U, peak)}   (expect 1 / 2)`);
+console.log(`  1M output            valley ¥${mod.costOf(O, valley)}  peak ¥${mod.costOf(O, peak)}   (expect 4 / 8)`);
+console.log(`  1M cache-hit input   valley ¥${mod.costOf(C, valley)}  peak ¥${mod.costOf(C, peak)}   (expect 0.02 / 0.04)`);
+console.log(`  USD 1M cache-miss    valley $${mod.costOfUsd(U, valley)}  peak $${mod.costOfUsd(U, peak)}   (expect 0.15 / 0.3)`);
+console.log(`  USD 1M output        valley $${mod.costOfUsd(O, valley)}  peak $${mod.costOfUsd(O, peak)}   (expect 0.6 / 1.2)`);
+console.log(`  USD 1M cache-hit     valley $${mod.costOfUsd(C, valley)}  peak $${mod.costOfUsd(C, peak)}   (expect 0.003 / 0.006)`);
+
+console.log("\n== a session crossing peak -> valley -> peak ==");
+const handlers = [];
+let shown = null;
+mod.default({ on: (n, fn) => handlers.push([n, fn]), registerTool: () => {}, registerCommand: () => {}, registerEntryRenderer: () => {} });
+const ctx = { ui: { setStatus: (k, v) => { if (k === "cost-cny") shown = v; }, theme: { fg: (c, s) => s } }, model: { id: "deepseek-flash" } };
+const msg = (iso, usage, model = "deepseek-flash") => ({ message: { role: "assistant", model, timestamp: Date.parse(iso), usage } });
+for (const [n, fn] of handlers) if (n === "session_start") await fn({}, ctx);
+const steps = [
+  ["2026-09-11T01:00:00Z", { input: 1_000_000, output: 0, cacheRead: 0 }, 2.0, "peak message"],
+  ["2026-09-11T10:00:00Z", { input: 1_000_000, output: 0, cacheRead: 0 }, 1.0, "valley message"],
+  ["2026-09-11T06:00:00Z", { input: 0, output: 1_000_000, cacheRead: 0 }, 8.0, "peak output"],
+  ["2026-09-12T02:00:00Z", { input: 0, output: 1_000_000, cacheRead: 0 }, 4.0, "weekend valley output"],
+];
+let expected = 0;
+let expectedUsd = 0;
+for (const [iso, usage, cost, label] of steps) {
+  expected += cost;
+  expectedUsd += cost * 0.15; // the USD tariff is not proportional, so recompute below
+  for (const [n, fn] of handlers) if (n === "message_end") await fn(msg(iso, usage), ctx);
+  console.log(`  after ${label.padEnd(22)} footer=${shown}`);
+}
+expectedUsd = 0;
+for (const [iso, usage] of steps) expectedUsd += mod.costOfUsd(usage, new Date(iso));
+console.log(`  expected total ¥${expected.toFixed(4)} / $${expectedUsd.toFixed(4)} | footer reports  ${shown}`);
+const reported = Number((shown || "").match(/¥([\d.]+)/)?.[1] ?? NaN);
+const reportedUsd = Number((shown || "").match(/\$([\d.]+)/)?.[1] ?? NaN);
+console.log(
+  Math.abs(reported - expected) < 1e-9 && Math.abs(reportedUsd - expectedUsd) < 1e-9
+    ? "  PASS — both currencies accumulate per-message, not re-priced"
+    : "  FAIL — mismatch",
+);
+
+console.log("\n== non-deepseek model is ignored ==");
+const before = shown;
+for (const [n, fn] of handlers) if (n === "message_end") await fn(msg("2026-09-11T10:00:00Z", { input: 1_000_000 }, "glm-5.3-flash"), ctx);
+console.log("  footer unchanged:", shown === before ? "yes" : "NO — priced a foreign model");

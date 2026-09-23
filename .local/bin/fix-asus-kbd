@@ -1,0 +1,207 @@
+#!/usr/bin/env bash
+#
+# fix-asus-kbd - recover a wedged ASUS N-KEY keyboard backlight (USB 0b05:19b6)
+#
+# Symptom: keyboard LED stuck in the breathing animation or at a fixed
+# brightness, ignoring asusctl and sysfs brightness writes (commands return
+# success but nothing changes). A suspend/resume normally clears it because
+# resume re-inits the USB device. This script does the same without
+# suspending, escalating in two steps:
+#
+#   1. HID driver unbind/rebind  - re-runs hid_asus probe + init sequence
+#   2. USB port power cycle      - true replug via the authorized toggle
+#
+# If both fail, the wedged state lives in the EC and a reboot is the fix.
+#
+# asusd is killed with SIGKILL before each step on purpose: a graceful stop
+# hands the "shutdown" keyboard state to asus-shutdown, which blocks forever
+# on a wedged device. That unit also has SendSIGKILL=no, so systemd can never
+# kill it either - that is the "systemctl restart asusd hangs" deadlock.
+#
+# Usage:
+#   fix-asus-kbd           run interactively (confirms after each step)
+#   fix-asus-kbd --yes     run both steps without asking
+#   fix-asus-kbd --rebind  run step 1 only (driver re-init, no USB unplug)
+#   fix-asus-kbd --check   exit 0 if the keyboard is present and re-enumerated
+
+set -euo pipefail
+shopt -s nullglob
+
+VENDOR=0b05
+PRODUCT=19b6
+YES=0
+REBIND=0
+CHECK=0
+for _arg in "$@"; do
+    case "$_arg" in
+        --yes)    YES=1 ;;
+        --rebind) REBIND=1 ;;
+        --check)  CHECK=1 ;;
+    esac
+done
+
+say()  { echo "==> $*"; }
+fail() { echo "ERROR: $*" >&2; exit 1; }
+
+find_usb_device() { # echo USB device name for the 0b05:19b6 N-KEY
+    local d v p
+    for d in /sys/bus/usb/devices/*/; do
+        [[ -r "$d/idVendor" && -r "$d/idProduct" ]] || continue
+        v=$(cat "$d/idVendor"); p=$(cat "$d/idProduct")
+        [[ "$v" == "$VENDOR" && "$p" == "$PRODUCT" ]] || continue
+        basename "$d"
+        return 0
+    done
+    return 1
+}
+
+hid_children() { # echo HID device names under USB device $1 (0003:0B05:19B6.*)
+    local usb="$1" iface h
+    for iface in /sys/bus/usb/devices/"$usb"/"$usb":1.*/; do
+        for h in "$iface"/0003:0B05:19B6.*/; do
+            basename "$h"
+        done
+    done
+}
+
+if [[ $CHECK -eq 1 ]]; then
+    _usb=$(find_usb_device) || exit 1
+    if [[ -n "$(hid_children "$_usb")" ]]; then
+        exit 0
+    else
+        exit 1
+    fi
+fi
+
+if [[ $EUID -ne 0 ]]; then
+    exec sudo "$0" "$@"
+fi
+
+ask_continue() { # 0 = responded / done, 1 = escalate to next step
+    local resp
+    printf '    keyboard responding now? [y/N] ' >&2
+    read -r resp
+    [[ "${resp,,}" == y* ]]
+}
+
+stop_asusd() { # SIGKILL only - skips the asus-shutdown handoff that deadlocks
+    if systemctl is-active --quiet asusd 2>/dev/null; then
+        say "stopping asusd (SIGKILL)"
+        systemctl kill -s KILL asusd 2>/dev/null || true
+        for _ in $(seq 1 20); do
+            systemctl is-active --quiet asusd 2>/dev/null || return 0
+            sleep 0.5
+        done
+    fi
+}
+
+start_asusd() {
+    systemctl reset-failed asusd 2>/dev/null || true
+    systemctl start asusd 2>/dev/null || say "warning: could not start asusd"
+    sleep 1
+}
+
+cleanup_strays() { # kill leftover asus-shutdown so systemd stop jobs finish
+    if pgrep -x asus-shutdown >/dev/null 2>&1; then
+        say "killing stray asus-shutdown (was blocking systemd stop jobs)"
+        systemctl kill -s KILL asus-shutdown 2>/dev/null || pkill -9 -x asus-shutdown || true
+    fi
+    systemctl reset-failed asus-shutdown 2>/dev/null || true
+}
+
+hid_rebind() { # step 1: detach and reattach the hid_asus driver
+    local usb="$1" h
+    for h in $(hid_children "$usb"); do
+        if [[ -L /sys/bus/hid/devices/$h/driver ]]; then
+            say "unbinding $h"
+            echo "$h" > "/sys/bus/hid/devices/$h/driver/unbind" || true
+        else
+            say "$h not bound, skipping unbind"
+        fi
+    done
+    sleep 1
+    for h in $(hid_children "$usb"); do
+        say "rebinding $h"
+        echo "$h" > /sys/bus/hid/drivers/asus/bind 2>/dev/null \
+            && sleep 0.5 \
+            || say "warning: could not rebind $h"
+    done
+}
+
+usb_cycle() { # step 2: power-cycle the USB port (authorized toggle = replug)
+    local usb="$1" auth="/sys/bus/usb/devices/$usb/authorized" h i
+    say "USB power cycle of $usb (LEDs blink off for ~2s)"
+    [[ -w "$auth" ]] || fail "no write access to $auth"
+    echo 0 > "$auth"
+    sleep 2
+    echo 1 > "$auth"
+    say "waiting for re-enumeration..."
+    for i in $(seq 1 40); do
+        h=$(hid_children "$usb" | head -1)
+        [[ -n "$h" ]] && break
+        sleep 0.5
+    done
+    if [[ -n "${h:-}" ]]; then
+        say "device back as $h"
+    else
+        say "warning: device did not re-enumerate"
+    fi
+    sleep 1
+}
+
+test_write() { # prove the brightness path responds (visual check after this)
+    if command -v asusctl >/dev/null && systemctl is-active --quiet asusd 2>/dev/null; then
+        say "test write: asusctl leds set low"
+        asusctl leds set low >/dev/null 2>&1 || true
+    else
+        say "asusd not running - no test write, eyeball the keyboard"
+    fi
+}
+
+finish_ok() {
+    echo "Fixed. Set your preferred level with: asusctl leds set med"
+    exit 0
+}
+
+# ---------------------------------------------------------------------------
+
+USB=$(find_usb_device) \
+    || fail "N-KEY keyboard not found (expected USB $VENDOR:$PRODUCT). Aborting."
+say "found N-KEY keyboard on USB $USB"
+say "HID children: $(hid_children "$USB" | tr '\n' ' ')"
+
+cleanup_strays
+
+run_step1() { stop_asusd; hid_rebind "$USB"; start_asusd; test_write; }
+run_step2() { stop_asusd; usb_cycle "$USB"; start_asusd; test_write; }
+
+if [[ $REBIND -eq 1 ]]; then
+    say "running driver re-init only (--rebind)"
+    stop_asusd
+    hid_rebind "$USB"
+    start_asusd
+    say "driver re-init complete; asusd restored your LED profile"
+    exit 0
+fi
+
+if [[ $YES -eq 1 ]]; then
+    say "running both steps (--yes)"
+    run_step1
+    run_step2
+    echo
+    echo "Both steps executed. If the keyboard is still stuck, reboot"
+    echo "(or shutdown + power on) - the wedged state is in the EC."
+    exit 0
+fi
+
+run_step1
+if ask_continue; then finish_ok; fi
+
+run_step2
+if ask_continue; then finish_ok; fi
+
+echo
+echo "Both steps ran and the keyboard still ignores writes."
+echo "The wedged state is in the EC - reboot (or shutdown + power on) is required."
+echo "If this recurs: it is usually the Fn+backlight hotkey racing asusd at boot/login."
+exit 1

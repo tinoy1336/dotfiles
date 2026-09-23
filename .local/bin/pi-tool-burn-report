@@ -1,0 +1,216 @@
+#!/usr/bin/env node
+/**
+ * pi-tool-burn-report — weekly tool-result burn analysis over pi session logs.
+ *
+ * Usage: pi-tool-burn-report [days]   (default 30)
+ *
+ * Buckets sessions by week (filename timestamp), measures bytes each tool
+ * returned INTO the conversation (token cost), and prints:
+ *   - per-week table: total/read/bash MB, bash >5KB bytes, ctx-tool calls
+ *   - per-day normalization
+ *   - current period per-tool ranking
+ *   - top repeat-read files (cumulative KB)
+ *   - bash first-word composition
+ *   - command-guard enforcement counts (if the hook is active)
+ *
+ * Results are deduped by call id: resumed/forked/delegated sessions copy full
+ * history into a new .jsonl, so the same tool call and result appear in several
+ * files and must be counted once.
+ */
+const { execSync } = require("node:child_process");
+const fs = require("node:fs");
+
+const DAYS = parseInt(process.argv[2] || "30", 10);
+const BASE = process.env.HOME + "/.pi/agent/sessions";
+const files = execSync(
+  `find ${BASE} -name '*.jsonl' -mtime -${DAYS} -not -path '*subagent-artifacts*'`
+).toString().trim().split("\n").filter(Boolean);
+
+const REF = Date.now();
+function bucket(f) {
+  const m = f.match(/(\d{4}-\d{2}-\d{2})T/);
+  if (!m) return null;
+  const days = Math.floor((REF - new Date(m[1])) / 86400000);
+  const wk = Math.max(0, Math.floor((days - 1) / 7));
+  return "W" + (wk + 1) + " (d" + (wk * 7 + 1) + "-" + (wk * 7 + 7) + ")";
+}
+
+const B = {};
+const b = (k) => (B[k] ||= { files: 0, res: {}, bash: { tot: 0, cat: 0, sed: 0, grep: 0, bigBytes: 0 }, ctxCalls: 0 });
+const pathReads = {};
+const bashFW = {};
+const bashBytes = {}; // command → bytes returned (attribution behind the >5KB column)
+const callInfo = {}; // call id → {name, args}, so parallel tool calls attribute correctly
+const seenCalls = new Set(); // call ids already counted (resume/fork copies share ids)
+
+// Blocked-call follow-through: per file, the ordered calls plus which ones came
+// back blocked, so the report can distinguish a switch (redirect followed) from
+// a retry of the same tool. High switch rate = the redirect works and the block
+// only cost the first attempt; low switch rate = the redirect is wrong or the
+// habit is stronger than the instruction.
+const follow = { retry: 0, switch: 0, end: 0, byTool: {} };
+const BLOCK_RE = /^(R1:|R2:)|blocked segment:|resolves outside the project root|blocked by security policy|File access blocked/;
+
+for (const f of files) {
+  const k = bucket(f);
+  if (!k) continue;
+  const bk = b(k);
+  bk.files++;
+  let data;
+  try { data = fs.readFileSync(f, "utf8"); } catch { continue; }
+  let lastPath = null;
+  const seq = [];
+  const blocked = new Set();
+  for (const line of data.split("\n")) {
+    if (!line) continue;
+    let j;
+    try { j = JSON.parse(line); } catch { continue; }
+    const m = j.message;
+    if (!m) continue;
+    const c = m.content;
+    if (Array.isArray(c)) {
+      for (const it of c) {
+        if (it.type !== "toolCall") continue;
+        if (it.id) {
+          const ck = "c" + it.id;
+          if (seenCalls.has(ck)) continue; // duplicate copy of an already-counted call
+          seenCalls.add(ck);
+        }
+        if (it.id) callInfo["i" + it.id] = { name: it.name, args: it.arguments };
+        if (it.id) seq.push({ id: it.id, name: it.name });
+        if (it.name === "bash") {
+          bk.bash.tot++;
+          const cmd = (it.arguments && it.arguments.command) || "";
+          const w0 = cmd.trim().split(/\s+/).filter((x) => !/^[A-Z_]+=/.test(x))[0];
+          if (w0) bashFW[w0] = (bashFW[w0] || 0) + 1;
+        } else if (/^ctx_/.test(it.name)) bk.ctxCalls++;
+        lastPath = it.name === "read" ? ((it.arguments && it.arguments.path) || null) : null;
+      }
+    }
+    if (m.toolName) {
+      if (m.toolCallId) {
+        const rk = "r" + m.toolCallId;
+        if (seenCalls.has(rk)) continue; // duplicate copy of an already-counted result
+        seenCalls.add(rk);
+      }
+      let bytes = 0;
+      if (typeof c === "string") bytes = c.length;
+      else if (Array.isArray(c)) for (const p of c) bytes += (p.text || "").length;
+      else if (c) bytes = JSON.stringify(c).length;
+      bk.res[m.toolName] = (bk.res[m.toolName] || 0) + bytes;
+      if (m.toolCallId) {
+        // Structural, never substring: only a tool RESULT's own text is scanned.
+        // Markers also appear inside read results that quote extension source,
+        // which is how an early version of this script double-counted blocks.
+        const text = typeof c === "string" ? c : Array.isArray(c) ? c.map((p) => p.text || "").join(" ") : "";
+        if (BLOCK_RE.test(text)) blocked.add(m.toolCallId);
+      }
+      if (m.toolName === "bash") {
+        if (bytes > 5000) bk.bash.bigBytes += bytes;
+        const cmd = (m.toolCallId && callInfo["i" + m.toolCallId]?.args?.command) || "";
+        if (cmd) {
+          const key = cmd.trim().replace(/\s+/g, " ").slice(0, 70);
+          bashBytes[key] = (bashBytes[key] || 0) + bytes;
+        }
+      }
+      if (m.toolName === "read") {
+        const p = (m.toolCallId && callInfo["i" + m.toolCallId]?.args?.path) || lastPath;
+        if (p) pathReads[p] = (pathReads[p] || 0) + bytes;
+        lastPath = null;
+      }
+    }
+  }
+
+  for (let i = 0; i < seq.length; i++) {
+    if (!blocked.has(seq[i].id)) continue;
+    const next = seq[i + 1];
+    const t = (follow.byTool[seq[i].name] ||= { retry: 0, switch: 0, end: 0 });
+    if (!next) { t.end++; follow.end++; }
+    else if (next.name === seq[i].name) { t.retry++; follow.retry++; }
+    else { t.switch++; follow.switch++; }
+  }
+}
+
+const keys = Object.keys(B).sort();
+const MB = (v) => (v / 1048576).toFixed(1);
+console.log("== weekly (result bytes = token cost) ==");
+console.log("bucket | files | totalMB | readMB | bashMB | bash>5KB | ctxCalls");
+let totalBytes = 0, spanDays = 0;
+for (const k of keys) {
+  const bk = B[k];
+  const tot = Object.values(bk.res).reduce((a, x) => a + x, 0);
+  totalBytes += tot;
+  console.log(
+    `${k} | ${bk.files} | ${MB(tot)} | ${MB(bk.res.read || 0)} | ${MB(bk.res.bash || 0)} | ${Math.round(bk.bash.bigBytes / 1024)}KB | ${bk.ctxCalls}`
+  );
+}
+const perDay = totalBytes / 1048576 / DAYS;
+console.log(`TOTAL: ${MB(totalBytes)}MB over ${DAYS}d = ${perDay.toFixed(2)} MB/day`);
+
+console.log("\n== current period, per tool ==");
+const agg = {};
+for (const k of keys) for (const [n, v] of Object.entries(B[k].res)) agg[n] = (agg[n] || 0) + v;
+for (const [n, v] of Object.entries(agg).sort((a, b2) => b2[1] - a[1]).slice(0, 15)) console.log(MB(v) + "MB", n);
+
+console.log("\n== top repeat-read files ==");
+for (const [p, v] of Object.entries(pathReads).sort((a, b2) => b2[1] - a[1]).slice(0, 12))
+  console.log(Math.round(v / 1024) + "KB", p.replace("/home/" + process.env.USER, "~").slice(0, 75));
+
+console.log("\n== bash first words ==");
+for (const [n, c] of Object.entries(bashFW).sort((a, b2) => b2[1] - a[1]).slice(0, 15)) console.log(c, n);
+
+console.log("\n== bash commands by bytes returned (top) ==");
+for (const [cmd, v] of Object.entries(bashBytes).sort((a, b2) => b2[1] - a[1]).slice(0, 12))
+  console.log(Math.round(v / 1024) + "KB", cmd.slice(0, 76));
+
+console.log("\n== after a block: switch tool or retry? ==");
+for (const [tool, c] of Object.entries(follow.byTool)) {
+  const tot = c.retry + c.switch + c.end;
+  console.log(`${tool}: ${c.switch} switched, ${c.retry} retried the same tool, ${c.end} last call (${tot ? Math.round((c.switch / tot) * 100) : 0}% switch)`);
+}
+
+// ONE reader for every extension's diagnostics. Extensions write
+// {ts, source, kind, detail} to the shared hook log; the legacy per-extension
+// files stay readable so earlier periods still count.
+const HOOK_LOG = process.env.HOME + "/.local/share/pi-hooks/log.jsonl";
+const LEGACY_LOGS = [
+  process.env.HOME + "/.local/share/pi-bash-guard/log.jsonl",
+  process.env.HOME + "/.local/share/pi-anchor/log.jsonl",
+  process.env.HOME + "/.local/share/pi-read-staleness/log.jsonl",
+];
+const events = [];
+for (const p of [HOOK_LOG, ...LEGACY_LOGS]) {
+  let data;
+  try { data = fs.readFileSync(p, "utf8"); } catch { continue; }
+  for (const line of data.split("\n")) {
+    if (!line) continue;
+    let j;
+    try { j = JSON.parse(line); } catch { continue; }
+    if (j.source) events.push({ source: j.source, kind: j.kind, detail: j.detail || {} });
+    else if (j.rule) events.push({ source: "command-guard", kind: "block", detail: { rule: j.rule } });
+    else if (j.kind) events.push({ source: "drift-anchor", kind: j.kind, detail: j });
+  }
+}
+console.log("\n== extension events (shared hook log) ==");
+const evCount = {};
+for (const e of events) { const k = e.source + "/" + e.kind; evCount[k] = (evCount[k] || 0) + 1; }
+for (const [k, v] of Object.entries(evCount).sort((a, b2) => b2[1] - a[1]).slice(0, 12)) console.log(v, k);
+const rules = {};
+for (const e of events) if (e.source === "command-guard" || e.source === "bash-guard") { const r = String(e.detail.rule || "?"); rules[r] = (rules[r] || 0) + 1; }
+if (Object.keys(rules).length) console.log("command-guard blocks:", JSON.stringify(rules));
+const anchors = {};
+for (const e of events) {
+  if (e.source !== "drift-anchor") continue;
+  const label = e.kind === "set-anchor" ? String(e.detail.label || "").slice(0, 46) : e.detail.label;
+  const k = e.kind + (label ? ": " + label : "");
+  anchors[k] = (anchors[k] || 0) + 1;
+}
+if (Object.keys(anchors).length) {
+  console.log("anchor injections:");
+  for (const [k, v] of Object.entries(anchors).sort((a, b2) => b2[1] - a[1]).slice(0, 10)) console.log("  " + v, k);
+}
+const stubs = events.filter((e) => e.source === "read-staleness");
+if (stubs.length) {
+  const saved = stubs.reduce((a, e) => a + (e.detail.bytes || 0), 0);
+  console.log(`read-staleness: ${stubs.length} repeat reads stubbed, ~${Math.round(saved / 1024)}KB not re-sent`);
+}

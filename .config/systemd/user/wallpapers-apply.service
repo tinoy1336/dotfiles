@@ -1,0 +1,10 @@
+[Unit]
+Description=Apply the greeter's wallpaper at login (seamless handoff, no random swap)
+After=graphical-session.target awww-daemon.service
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/wallpapers-sync apply-greeter
+
+[Install]
+WantedBy=graphical-session.target

@@ -1,0 +1,137 @@
+@import 'colors.css';
+
+/*
+ * AGS-palette overrides on top of adw-gtk3-dark (2026-09-01).
+ *
+ * Base theme: adw-gtk3-dark (/usr/share/themes) — set in settings.ini and
+ * gsettings. This file only re-skins the surfaces the AGS shell cannot own:
+ * in-process native dialogs (GtkMessageDialog / GtkDialog) drawn by GTK3 and
+ * Electron apps. There is no IPC seam for those, so theming is the only lever.
+ *
+ * Palette mirrors ~/.config/ags/common/shell/theme.css + apps/promptd/style.css:
+ *   text        #e6e6e6      secondary  #c9c9c9 / #a6a6a6
+ *   accent      #8ab5f7      danger     #ff6b6b      warning #f0b35a
+ *   card radius 14px         inner      12px
+ *   font        JetBrainsMono Nerd Font
+ */
+
+@define-color ags_surface #1b1d22;
+@define-color ags_surface_raised #23262c;
+@define-color ags_text #e6e6e6;
+@define-color ags_text_dim #a6a6a6;
+@define-color ags_accent #8ab5f7;
+@define-color ags_danger #ff6b6b;
+
+/* Dialog shell ------------------------------------------------------------ */
+
+messagedialog,
+messagedialog.background,
+dialog.message,
+window.dialog {
+  background-color: @ags_surface;
+  color: @ags_text;
+  border-radius: 14px;
+  font-family: "JetBrainsMono Nerd Font";
+}
+
+messagedialog .titlebar,
+messagedialog headerbar,
+window.dialog headerbar {
+  background-color: @ags_surface;
+  background-image: none;
+  color: @ags_text;
+  border: none;
+  box-shadow: none;
+  min-height: 34px;
+}
+
+/* Primary question line + secondary explanation. */
+messagedialog label {
+  color: @ags_text;
+  font-family: "JetBrainsMono Nerd Font";
+}
+
+messagedialog .dim-label,
+messagedialog label.dim-label {
+  color: @ags_text_dim;
+}
+
+messagedialog box.vertical,
+messagedialog .message-area {
+  padding: 6px 4px;
+}
+
+/* Action row -------------------------------------------------------------- */
+
+messagedialog .dialog-action-area,
+messagedialog .dialog-action-box,
+window.dialog .dialog-action-area {
+  background-color: @ags_surface;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 4px;
+}
+
+messagedialog .dialog-action-area button,
+window.dialog .dialog-action-area button {
+  background-image: none;
+  background-color: transparent;
+  color: @ags_text;
+  border: none;
+  border-radius: 12px;
+  box-shadow: none;
+  margin: 4px;
+  padding: 8px 14px;
+  font-family: "JetBrainsMono Nerd Font";
+}
+
+messagedialog .dialog-action-area button:hover,
+window.dialog .dialog-action-area button:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+messagedialog .dialog-action-area button:active,
+window.dialog .dialog-action-area button:active {
+  background-color: rgba(255, 255, 255, 0.14);
+}
+
+messagedialog .dialog-action-area button:focus,
+window.dialog .dialog-action-area button:focus {
+  outline: none;
+  box-shadow: inset 0 0 0 1px rgba(138, 181, 247, 0.55);
+}
+
+messagedialog .dialog-action-area button.suggested-action,
+window.dialog .dialog-action-area button.suggested-action {
+  background-color: rgba(138, 181, 247, 0.18);
+  color: @ags_accent;
+}
+
+messagedialog .dialog-action-area button.destructive-action,
+window.dialog .dialog-action-area button.destructive-action {
+  background-color: rgba(255, 107, 107, 0.16);
+  color: @ags_danger;
+}
+
+/* Inputs inside dialogs (zenity/yad fallback paths, GTK entry prompts). */
+
+messagedialog entry,
+window.dialog entry {
+  background-color: @ags_surface_raised;
+  color: @ags_text;
+  caret-color: @ags_accent;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 12px;
+  padding: 6px 10px;
+  box-shadow: none;
+}
+
+messagedialog entry:focus,
+window.dialog entry:focus {
+  border-color: rgba(138, 181, 247, 0.55);
+  box-shadow: none;
+}
+
+messagedialog check,
+window.dialog check {
+  color: @ags_accent;
+}

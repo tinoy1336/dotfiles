@@ -1,0 +1,670 @@
+#!/usr/bin/env bash
+# cli-keys — put the pi provider API keys in the credential cache pi hydrates from.
+#
+# The keys live in the Proton Pass vault `CLI`, one custom item per variable,
+# each carrying a single hidden VALUE field. `pass-cli item view` prints a secret
+# to stdout and is never used here: the three values are fetched in ONE
+# `pass-cli run` call whose child reads them from its own environment and writes
+# the cache file itself, so no value ever crosses an argument list, a pipe or
+# stdout, and pass-cli's stdout masking stays on.
+#
+# The cache path has ONE definition, CACHE below. Every other reader asks for it
+# (`cli-keys cache-path`) rather than carrying a literal of its own, so the writers
+# and readers of one credential file cannot disagree about where it is.
+#
+# It is STATE, not runtime state: the file must outlive a reboot, so it lives under
+# the XDG state directory. $XDG_RUNTIME_DIR is a tmpfs and loses it at every boot,
+# which is what left a rebooted machine with no credential at all.
+#
+# The file holds JSON — fetched_epoch, expires_epoch, keys — with mode 600, written
+# atomically (temp file + rename inside the same directory) so a reader never sees a
+# partial file. NO failure path truncates, rewrites or removes an existing cache:
+# the fetch writes a temp file of its own and renames it over the cache only once
+# every value has been validated, and every earlier failure removes only that temp
+# file.
+#
+# expires_epoch decides WHEN TO REFRESH, never whether the cache is served. A stale
+# credential still resolves a request, so this script and the cli-keys extension
+# serve the cache whatever its age — an hours-old key is worth more than none.
+#
+# `cli-keys key NAME --reveal` is what the command form in models.json calls —
+# `"apiKey": "!<path>/cli-keys key DEEPSEEK_API_KEY --reveal"` — so the provider counts
+# as configured from the configuration alone, before pi has loaded any extension and
+# before any environment variable is set. It reads the environment's value first (a
+# process that hydration already reached carries it), then the cached value, and exits
+# non-zero when neither has one. It never fetches: its caller is a synchronous
+# resolution inside a request, so a vault round trip there would stall a turn, while
+# the launch path stays free of the network either way.
+#
+# `key` prints NO value unless one is asked for. Its default output is the name, where the
+# value came from and a short sha256 prefix with the length — enough to tell two
+# credentials apart and to see one change, and useless to whoever reads a transcript. The
+# value itself is printed only under the explicit `--reveal`, the form every consumer
+# uses, so reading a credential back stays a deliberate act rather than the default of a
+# command whose output tends to get pasted somewhere.
+#
+# `cli-keys watch` is what refreshes without a session: it holds the NetworkManager
+# monitor open for the whole login session and reconciles on every connectivity
+# change, so a machine that comes back online is refreshed by itself. It runs under
+# cli-keys-refresh.service; nothing here waits for a pi session to open.
+#
+# The vault SESSION is pass-cli's, not this script's, and it needs a local key store
+# that outlives a reboot: PROTON_PASS_KEY_PROVIDER=fs is exported below, because the
+# Linux default (the kernel keyring) is cleared at boot and pass-cli then finds
+# local data with no key and forces a logout. Every pass-cli invocation for this
+# credential has to use the same store — a different one cannot decrypt the existing
+# session database and forces that same logout.
+#
+# The CREDENTIAL is a personal access token (`pst_<token>::<key>`, one year), staged
+# by the operator at VAULT_TOKEN_FILE. The session pass-cli builds from it is only a
+# CACHE of that credential, and it is the session, not the token, that lapses: every
+# fetch therefore starts by making sure a session exists, rebuilds one from the token
+# when it does not, and retries ONCE after a forced re-login when the vault refuses a
+# session pass-cli still believed in. No interactive login is ever required while the
+# token is valid. The token file lives in this private state directory, at mode 600,
+# and is deliberately never a tracked path in the dotfiles repository.
+#
+# A fetch that fails because the vault REFUSED the credential — no session, a revoked
+# or expired token, a 401 — is reported once through notify-send, naming the failure
+# and the login command that fixes it. The notice is rate-limited to one per state
+# change with a NOTIFY_INTERVAL floor and any successful refresh re-arms it, so a
+# credential that stays bad cannot ping through every sweep.
+#
+# ONE card, never a pile. The announcement decision is a read-then-write of the state
+# file, so it runs under an exclusive lock: two fetches that both read "nothing
+# announced" both raised a notice, which is how one refusal stood on screen twice. Every
+# notice is also raised with the previous notice's id as its replace id, so a repeat
+# updates the card already on screen, and a refresh the vault accepts closes that card
+# outright — a sticky notice for a refusal must not survive the refusal.
+#
+# The notice belongs to the OPERATOR, so only a run that can see the operator's credential
+# store raises one: the staged token file must be present where this process resolves it.
+# A scratch agent directory, a bubblewrap mask over the state directory or a throwaway
+# XDG_STATE_HOME leave a process looking at an empty store — its failure is "this
+# environment has no credential", not "the operator's token was refused", and two such
+# isolated loads of this script put one identical critical notice on screen twice. The
+# failure itself still reaches stderr and the exit status. CLI_KEYS_NO_NOTIFY=1 is the same
+# suppression for a scratch environment that stages its own token.
+#
+# There is NO client-side expiry tracking. Neither this script nor the extension
+# watches the credential's age, schedules a renewal or warns ahead of it: the token is
+# a year credential and the only event worth reacting to is a real rejection. The
+# cache's own expires_epoch governs the CACHE (when to refetch), never the token.
+#
+# Usage: cli-keys             refresh when the cache is stale and the machine is online
+#                                 (a vault-refused credential raises one notify-send notice)
+#        cli-keys ensure [--json] [--force]
+#                            the same, with one machine-readable outcome object;
+#                                 --force demands the fetch whatever the cache's freshness
+#        cli-keys key NAME [--reveal]
+#                            report one credential WITHOUT its value (name, source,
+#                                 sha256 prefix and length); --reveal prints the value
+#                                 itself to stdout, for models.json's command form
+#        cli-keys cache-path  print the cache path (the ONE definition)
+#        cli-keys watch       reconcile on every connectivity change, plus a sweep
+#        cli-keys status      report cache path, mode, age, state and per-key lengths
+
+set -uo pipefail
+
+# Freshness window — the ONE definition. The fetch is a network round trip
+# (~4s for the three items), so the window must be measured in hours to keep the
+# call off the session-start path; the keys are long-lived provider credentials,
+# so a same-day bound on how long a rotated key can be served is enough. The
+# extension reads the expiry this script stores, never a duration of its own.
+FRESH_SECONDS=$((12 * 3600))
+
+VAULT_NAME="CLI"
+# The vault items to fetch, by title — each title IS the variable it feeds. This
+# array is the ONE definition of the set: the reference build, the child's
+# validation and the child's serialization all read it, so adding or renaming an
+# item is a one-line change here.
+KEY_NAMES=(DEEPSEEK_API_KEY OPENROUTER_API_KEY ZAI_API_KEY)
+# A hung Proton API call must not wedge the session-start fetch that runs this.
+VAULT_TIMEOUT=30
+# `watch`'s sweep period: the longest a refresh can be delayed when no monitor line
+# arrives at all. It is a backstop for the event path, never a poll for the fetch.
+WATCH_CYCLE=900
+# Floor between two rejection notices, in seconds: a credential that stays bad is
+# reported on the state change that revealed it, and then at most once per 12h.
+NOTIFY_INTERVAL=$((12 * 3600))
+# The notice's urgency. Critical, because this failure needs the operator to stage a fresh
+# token; it is safe to be sticky now that a repeat REPLACES the same card instead of
+# stacking a second one and a refresh the vault accepts closes it.
+NOTIFY_URGENCY="critical"
+# The vault's answers that a TOKEN-BASED RE-LOGIN can change, as opposed to a refusal of
+# the credential itself. Matched against pass-cli's stderr. Kept apart from the notice
+# pattern because the two questions differ: a session the vault no longer knows is exactly
+# what reauth_from_token rebuilds, and reporting it as a refused credential accuses a
+# token that is still valid.
+RETRYABLE_AUTH_RE='non-existent session|failed to authenticate|requires an authenticated client|not an active session|already logged out|Local encryption key not found|401|Unauthori[sz]ed|[Ii]nvalid (personal )?access token'
+# The vault's answers that mean the CREDENTIAL was refused, as opposed to a network
+# failure, a missing vault or a missing item. Matched against pass-cli's stderr.
+CREDENTIAL_REJECTION_RE='requires an authenticated client|not an active session|already logged out|Local encryption key not found|401|Unauthori[sz]ed|[Ii]nvalid (personal )?access token'
+
+# pass-cli's local key store for the session database. `fs` keeps the key in
+# ~/.local/share/proton-pass-cli/.session/local.key (mode 600) so the session survives
+# a reboot; the default kernel keyring is cleared at boot, after which pass-cli finds
+# local data with no key and forces a logout. An explicit value in the environment
+# wins, so a machine that wants the D-Bus keyring (PROTON_PASS_LINUX_KEYRING=dbus)
+# stays consistent as long as every invocation gets the same backend.
+export PROTON_PASS_KEY_PROVIDER="${PROTON_PASS_KEY_PROVIDER:-fs}"
+# Pause before the monitor stream is rebuilt, so a monitor that exits at once cannot
+# turn the watch loop into a spin.
+MONITOR_RESTART_DELAY=5
+
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/cli-keys"
+CACHE="$STATE_DIR/cache.json"
+# The rejection notice's own state: its presence records a state change already
+# announced, and its epoch bounds how often the same state may be announced again.
+REJECT_STATE="$STATE_DIR/rejection.json"
+# The lock that serializes the announcement decision: report_vault_failure reads the state
+# and then writes it, so two processes reading at once both announced the same refusal.
+# flock is util-linux; a machine without it keeps the old race but still notifies.
+REJECT_LOCK="$STATE_DIR/.rejection.lock"
+# The credential itself: a personal access token, written by the operator, mode 600.
+# It is read only by the login paths below and never printed, logged or passed on an
+# argument list (pass-cli takes it from the environment).
+VAULT_TOKEN_FILE="$STATE_DIR/token"
+# The reference file holds vault ids, never values; it is removed on every exit.
+REF_DIR="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}"
+
+REFS=""
+cleanup() { [ -n "$REFS" ] && rm -f "$REFS"; }
+trap cleanup EXIT
+
+now_epoch() { date +%s; }
+
+cache_field() {
+  # cache_field <jq-path> — empty when the cache is absent, unreadable or stale-shaped.
+  [ -f "$CACHE" ] || return 0
+  jq -r "$1 // empty" "$CACHE" 2>/dev/null
+}
+
+is_fresh() {
+  local expires
+  expires="$(cache_field '.expires_epoch')"
+  case "$expires" in
+    "" | *[!0-9]*) return 1 ;;
+  esac
+  [ "$expires" -gt "$(now_epoch)" ]
+}
+
+cache_state() {
+  [ -e "$CACHE" ] || { echo absent; return 0; }
+  if is_fresh; then echo fresh; else echo stale; fi
+}
+
+online() {
+  # NetworkManager reports `none` only when no usable route exists; a missing
+  # nmcli and every other state proceed, so a failing vault call — not this
+  # gate — stays the single failure path.
+  command -v nmcli >/dev/null 2>&1 || return 0
+  [ "$(timeout 5 nmcli -t -f CONNECTIVITY general 2>/dev/null | head -n1)" != "none" ]
+}
+
+# session_from_token — log pass-cli in from the staged personal access token so it
+# creates a fresh session. The token travels in the CHILD'S ENVIRONMENT, never in an
+# argument list, so it cannot be read out of this process's command line; pass-cli's
+# own success line names the token, never its value.
+session_from_token() {
+  local tok=""
+  [ -r "$VAULT_TOKEN_FILE" ] || return 1
+  tok="$(<"$VAULT_TOKEN_FILE")"
+  [ -n "$tok" ] || return 1
+  # A session RECORD in the local store makes `login` refuse with "Client is already
+  # authenticated", and a record whose session the vault no longer accepts answers every
+  # vault call with "non-existent session" — the state where a valid token can rebuild
+  # nothing. A refused login therefore drops the stale record and retries once.
+  if PROTON_PASS_PERSONAL_ACCESS_TOKEN="$tok" timeout "$VAULT_TIMEOUT" pass-cli login >/dev/null 2>&1; then
+    return 0
+  fi
+  timeout "$VAULT_TIMEOUT" pass-cli logout --force >/dev/null 2>&1 || true
+  PROTON_PASS_PERSONAL_ACCESS_TOKEN="$tok" timeout "$VAULT_TIMEOUT" pass-cli login >/dev/null 2>&1
+}
+
+# ensure_session — a session must exist before anything reads the vault. `pass-cli
+# info` answers from the local store, so this costs nothing when one is live; a
+# machine with no token file behaves exactly as before (the fetch fails and the
+# notice names what to fix).
+ensure_session() {
+  timeout "$VAULT_TIMEOUT" pass-cli info >/dev/null 2>&1 && return 0
+  session_from_token
+}
+
+# reauth_from_token — drop the local session and rebuild it from the token. For the
+# case the cheap check cannot see: pass-cli still holds a session record while the
+# vault itself refuses it.
+reauth_from_token() {
+  [ -r "$VAULT_TOKEN_FILE" ] || return 1
+  timeout "$VAULT_TIMEOUT" pass-cli logout --force >/dev/null 2>&1 || true
+  session_from_token
+}
+
+build_refs() {
+  # `pass-cli run` resolves `pass://<share>/<item>/<field>` by ITEM ID; a title in
+  # the item position fails ("Could not find vault <share>"). Ids are read per
+  # fetch rather than baked in, so recreating a vault item cannot leave a stale
+  # reference behind in this script.
+  #
+  # Its stderr is captured instead of discarded: the vault's own answer is the only
+  # evidence of WHY a listing failed, and the credential-rejection class is decided
+  # from that text. It stays in LAST_VAULT_ERROR for the caller to report.
+  local missing="" name out err
+  REFS="$(mktemp "$REF_DIR/cli-keys-refs.XXXXXX")" || return 1
+  out="$(mktemp "$REF_DIR/cli-keys-list.XXXXXX")" || return 1
+  err="$(mktemp "$REF_DIR/cli-keys-err.XXXXXX")" || return 1
+  timeout "$VAULT_TIMEOUT" pass-cli item list --vault-name "$VAULT_NAME" --output json >"$out" 2>"$err"
+  local list_rc=$?
+  LAST_VAULT_ERROR="$(cat "$err")"
+  jq -r --arg names "${KEY_NAMES[*]}" '
+    (.items // .) as $all
+    | ($names | split(" ") | .[]) as $want
+    | $all[] | select(.title == $want) | "\($want)=pass://\(.share_id)/\(.id)/VALUE"
+  ' <"$out" >"$REFS" 2>/dev/null
+  rm -f "$out" "$err"
+  # A FAILED listing leaves the items unknown, which is not the same answer as absent:
+  # reporting "no item for …" here sent an operator looking for missing vault items while
+  # the real cause was a vault call that never succeeded.
+  if [ "$list_rc" -ne 0 ]; then
+    echo "cli-keys: the vault listing failed (pass-cli item list exit $list_rc); the items are unknown, not missing" >&2
+    [ -n "$LAST_VAULT_ERROR" ] && printf '%s\n' "$LAST_VAULT_ERROR" >&2
+    return 1
+  fi
+  for name in "${KEY_NAMES[@]}"; do
+    grep -q "^$name=" "$REFS" || missing="$missing $name"
+  done
+  if [ -n "$missing" ]; then
+    echo "cli-keys: vault $VAULT_NAME has no item for:$missing" >&2
+    [ -n "$LAST_VAULT_ERROR" ] && printf '%s\n' "$LAST_VAULT_ERROR" >&2
+    return 1
+  fi
+  return 0
+}
+
+# is_credential_rejection <text> — whether the vault's answer says the CREDENTIAL was
+# refused. A network failure, an unreachable vault and a missing item all answer no.
+is_credential_rejection() {
+  [ -n "$1" ] || return 1
+  printf '%s\n' "$1" | grep -qiE "$CREDENTIAL_REJECTION_RE"
+}
+
+# is_retryable_auth_failure <text> — whether a re-login from the token could change the
+# answer. Wider than the notice predicate on purpose: the retry decision is "can this be
+# healed", the notice decision is "does the operator have to fix the credential".
+is_retryable_auth_failure() {
+  [ -n "$1" ] || return 1
+  printf '%s\n' "$1" | grep -qiE "$RETRYABLE_AUTH_RE"
+}
+
+# write_reject_state <state> <epoch> <notice-id> — the announcement record, written
+# atomically. It carries the notice's own id beside the announcement, because that id is
+# what makes a repeat update the card on screen instead of stacking a second one.
+write_reject_state() {
+  local tmp="$REJECT_STATE.$$"
+  if jq -n --arg s "$1" --argjson e "$2" --argjson i "${3:-0}" '{state:$s, epoch:$e, id:$i}' >"$tmp"; then
+    mv -f "$tmp" "$REJECT_STATE" || rm -f "$tmp"
+  else
+    rm -f "$tmp"
+  fi
+}
+
+# announce_rejected <replace-id> — raise the notice and print the id the daemon assigned.
+# The replace id folds a repeat into the card already on screen; notify-send answers the id
+# it was given, which the caller stores so the NEXT notice can replace this one. The body
+# names the token's PATH and carries no fragment of the credential. notify-send is the
+# channel because this runs inside cli-keys-refresh.service, where no agent tool exists; a
+# machine without notify-send, or a unit with no session bus, keeps the journal line the
+# caller already wrote.
+announce_rejected() {
+  local replace_id="${1:-0}" id=""
+  command -v notify-send >/dev/null 2>&1 || return 1
+  # CRITICAL, not normal: this notice needs the operator, and the daemon's normal tier
+  # expires on its own while critical stays until it is dismissed. Sticky costs one card
+  # here, never a pile: a repeat REPLACES it and clear_rejection closes it.
+  id="$(timeout 10 notify-send -p -r "$replace_id" -u "$NOTIFY_URGENCY" -a cli-keys \
+    -h string:x-dunst-stack-tag:cli-keys-vault \
+    "cli-keys: the vault refused the credential" \
+    "The staged personal access token was refused, so the provider API keys cannot refresh (the cached ones keep being served). Fix: replace $VAULT_TOKEN_FILE with a fresh pst_<token>::<key> from Proton Pass. The file stays mode 600 and is never committed." \
+    2>/dev/null || true)"
+  printf '%s' "$id" | tr -dc '0-9'
+}
+
+# close_notice <id> — withdraw the notice through the notification daemon's own method, so
+# a credential that starts working again does not leave a sticky card claiming it is still
+# refused. Non-fatal: no session bus, no busctl, or a card the operator already dismissed
+# all leave the state file as the authority.
+close_notice() {
+  command -v busctl >/dev/null 2>&1 || return 0
+  timeout 10 busctl --user call org.freedesktop.Notifications /org/freedesktop/Notifications \
+    org.freedesktop.Notifications CloseNotification u "$1" >/dev/null 2>&1 || true
+}
+
+# report_vault_failure <text> — announce a REFUSED credential, once. The state file
+# carries the announcement: a state already announced is repeated only once the
+# NOTIFY_INTERVAL floor has passed, and any successful refresh re-arms it, so the next
+# rejection is a state change again. Any other failure class is left to the journal line
+# the caller wrote.
+#
+# The read-decide-write below runs under an EXCLUSIVE lock, because it is not atomic on its
+# own: two fetches that both read "nothing announced" both raised a notice, which is how
+# one refusal came to stand on screen twice. A caller that cannot take the lock at once is
+# racing an announcer of the same state and therefore stays silent.
+report_vault_failure() {
+  local detail="$1" state="" last=0 notice_id=0 now
+  is_credential_rejection "$detail" || return 0
+  # An operator's desktop is not a scratch process's to write to: the notice names the token
+  # file it is about, so this process must be able to SEE that file. An isolated state
+  # directory (a mask or a scratch XDG_STATE_HOME) is empty by construction, and its failure
+  # says nothing about the operator's credential.
+  if [ "${CLI_KEYS_NO_NOTIFY:-}" = "1" ]; then
+    echo "cli-keys: the vault refused the credential; the desktop notice is suppressed by CLI_KEYS_NO_NOTIFY=1" >&2
+    return 0
+  fi
+  if [ ! -r "$VAULT_TOKEN_FILE" ]; then
+    echo "cli-keys: the vault refused the credential, but this process sees no token at $VAULT_TOKEN_FILE; no desktop notice raised (an isolated state directory must not reach the operator)" >&2
+    return 0
+  fi
+  mkdir -p -m 700 "$STATE_DIR" || return 0
+  if command -v flock >/dev/null 2>&1; then
+    exec 9>"$REJECT_LOCK" || return 0
+    flock -n 9 || return 0
+  fi
+  now="$(now_epoch)"
+  if [ -f "$REJECT_STATE" ]; then
+    read -r state last notice_id <<<"$(jq -r '[.state // "rejected", (.epoch // 0), (.id // 0)] | @tsv' "$REJECT_STATE" 2>/dev/null)"
+  fi
+  case "$notice_id" in "" | *[!0-9]*) notice_id=0 ;; esac
+  if [ "$state" = rejected ] && [ "$((now - last))" -lt "$NOTIFY_INTERVAL" ]; then
+    echo "cli-keys: the vault still refuses the credential; reported $((now - last))s ago, next notice after ${NOTIFY_INTERVAL}s" >&2
+    return 0
+  fi
+  # Announce the state BEFORE the notice goes out: a process that finds the record written
+  # has nothing left to announce.
+  write_reject_state rejected "$now" "$notice_id"
+  echo "cli-keys: the vault refused the credential; a notice was raised, fix by replacing $VAULT_TOKEN_FILE" >&2
+  notice_id="$(announce_rejected "$notice_id")"
+  [ -n "$notice_id" ] && write_reject_state rejected "$now" "$notice_id"
+}
+
+# clear_rejection — a refresh the vault accepted: the card is withdrawn, because a notice
+# saying the credential is refused must not outlive the refusal, and the id is kept so a
+# later refusal can still replace whatever the operator left on screen.
+clear_rejection() {
+  local notice_id=0
+  if [ -f "$REJECT_STATE" ]; then
+    notice_id="$(jq -r '.id // 0' "$REJECT_STATE" 2>/dev/null)"
+    case "$notice_id" in "" | *[!0-9]*) notice_id=0 ;; esac
+    [ "$notice_id" != 0 ] && close_notice "$notice_id"
+  fi
+  write_reject_state accepted "$(now_epoch)" "$notice_id"
+}
+
+# run_fetch — ONE fetch attempt: resolve the references, run the consumer child that
+# writes the cache, and keep the vault's own stderr in LAST_VAULT_ERROR for the caller
+# to classify. It reports nothing: the retry decision belongs to fetch().
+run_fetch() {
+  local now expires err rc
+  LAST_VAULT_ERROR=""
+  if ! build_refs; then
+    return 1
+  fi
+  now="$(now_epoch)"
+  expires=$((now + FRESH_SECONDS))
+  # The state directory is the writer's to create; it is per-user data, so it is
+  # mode 700 like the file it holds.
+  mkdir -p -m 700 "$STATE_DIR" || return 1
+  # The child is the vault consumer: pass-cli injects the values into its
+  # environment (masking them on stdout) and this script hands it the names to
+  # read, so the child derives both its validation and its serialization from
+  # the same list. It validates every value before writing, so a partial set can
+  # never reach the cache, and it commits with a rename.
+  err="$(mktemp "$REF_DIR/cli-keys-run.XXXXXX")" || return 1
+  timeout "$VAULT_TIMEOUT" pass-cli run --env-file "$REFS" -- sh -c '
+    set -u
+    cache="$1"; now="$2"; expires="$3"; shift 3
+    for v in "$@"; do
+      eval "value=\${$v:-}"
+      if [ -z "$value" ]; then
+        echo "cli-keys: the vault served no value for $v" >&2
+        exit 1
+      fi
+    done
+    umask 077
+    tmp="$cache.tmp.$$"
+    if ! jq -n --argjson fe "$now" --argjson ee "$expires" --args \
+      "{version:1, fetched_epoch:\$fe, expires_epoch:\$ee, keys:(reduce \$ARGS.positional[] as \$n ({}; .[\$n] = env[\$n]))}" \
+      "$@" >"$tmp"; then
+      rm -f "$tmp"
+      echo "cli-keys: could not serialize the fetched values" >&2
+      exit 1
+    fi
+    chmod 600 "$tmp"
+    mv -f "$tmp" "$cache" || { rm -f "$tmp"; exit 1; }
+  ' _ "$CACHE" "$now" "$expires" "${KEY_NAMES[@]}" 2>"$err"
+  rc=$?
+  LAST_VAULT_ERROR="$(cat "$err")"
+  rm -f "$err"
+  # The vault's own diagnostics stay in the journal, whichever class they are; the
+  # notice is what an operator needs on top of them.
+  [ -n "$LAST_VAULT_ERROR" ] && printf '%s\n' "$LAST_VAULT_ERROR" >&2
+  [ "$rc" -eq 0 ] || return 1
+  return 0
+}
+
+# fetch — the session bootstrap, one fetch attempt, and ONE re-auth retry when the
+# vault refused the credential. The retry is what makes an unattended refresh work:
+# a session that lapsed since the last fetch is rebuilt from the token and the fetch
+# repeated, so only a token that no longer works can end as a reported failure.
+fetch() {
+  local attempt rc
+  for attempt in 1 2; do
+    if [ "$attempt" = 1 ]; then
+      ensure_session || true
+    else
+      reauth_from_token || true
+    fi
+    rc=0
+    run_fetch || rc=$?
+    if [ "$rc" -eq 0 ]; then
+      clear_rejection
+      return 0
+    fi
+    if [ "$attempt" = 1 ] && [ -r "$VAULT_TOKEN_FILE" ] && is_retryable_auth_failure "$LAST_VAULT_ERROR"; then
+      echo "cli-keys: the vault refused the session; re-authenticating from the token and retrying" >&2
+      continue
+    fi
+    break
+  done
+  report_vault_failure "$LAST_VAULT_ERROR"
+  return 1
+}
+
+# ensure [--json] — the refresh decision and its outcome. A fresh cache is a no-op,
+# an offline machine skips the fetch (there is nothing to reach), and a failed fetch
+# leaves the cache exactly as it found it. Every path exits 0 except a failed fetch.
+ensure() {
+  local json="${1:-0}" force="${2:-0}" outcome
+  # `force` skips the freshness window ONLY: an operator asking for a fetch gets one, while
+  # the offline gate stays — an offline machine reports `offline` rather than a network
+  # error, and its cache is left as it is.
+  if [ "$force" != 1 ] && is_fresh; then
+    outcome=fresh
+  elif ! online; then
+    outcome=offline
+    [ "$json" = 1 ] || echo "cli-keys: offline; the cache is left as it is" >&2
+  elif fetch; then
+    outcome=refreshed
+    [ "$json" = 1 ] || echo "cli-keys: $CACHE refreshed, valid for ${FRESH_SECONDS}s"
+  else
+    outcome=failed
+    echo "cli-keys: fetch failed; any existing cache is untouched" >&2
+  fi
+  if [ "$json" = 1 ]; then
+    jq -n --arg o "$outcome" --arg c "$CACHE" --arg s "$(cache_state)" \
+      '{outcome:$o, cache:$c, state:$s}'
+  fi
+  [ "$outcome" != failed ]
+}
+
+# watch — refresh without a session. Holds the NetworkManager monitor open and
+# reconciles on every connectivity transition it reports, with a sweep between
+# transitions so a missed line still cannot leave a stale cache in place.
+watch() {
+  local line
+  # One reconcile before the first signal: a service starting with the network
+  # already up has no transition left to observe.
+  ensure 1
+  while :; do
+    coproc MONITOR { nmcli monitor 2>/dev/null; }
+    while IFS= read -r -t "$WATCH_CYCLE" line <&"${MONITOR[0]}"; do
+      case "$line" in
+        # nmcli monitor's own transition lines: "Connectivity is now 'full'" and
+        # "Networkmanager is now in the 'connected' state". Which state it moved to
+        # is not parsed: the reconcile below reads the machine's real connectivity.
+        *"Connectivity is now"* | *"is now in the"*) ensure 1 ;;
+      esac
+    done
+    kill "$MONITOR_PID" 2>/dev/null
+    wait "$MONITOR_PID" 2>/dev/null
+    sleep "$MONITOR_RESTART_DELAY"
+    # The sweep elapsed or the monitor ended; a gap in the stream is the one interval
+    # a transition can hide in, so reconcile before rebuilding the stream.
+    ensure 1
+  done
+}
+
+# key <NAME> [--reveal] — report ONE credential. Membership in KEY_NAMES is checked
+# first: that array stays the ONE definition of the set the vault serves, and this must
+# never grow into a general environment printer. The default output carries NO value —
+# name, source and a short sha256 prefix with the length — so the command stays safe in
+# front of a log; the value itself needs the explicit --reveal, which is the form the
+# models.json command form uses.
+key() {
+  local name="" reveal=0 arg known="" from_env="" value="" source=""
+  for arg in "$@"; do
+    case "$arg" in
+      --reveal) reveal=1 ;;
+      -*) usage_error "$arg" ;;
+      *)
+        [ -z "$name" ] || usage_error "$arg"
+        name="$arg"
+        ;;
+    esac
+  done
+  for known in "${KEY_NAMES[@]}"; do
+    [ "$known" = "$name" ] && break
+  done
+  if [ "$known" != "$name" ]; then
+    echo "cli-keys: unknown key: ${name:-<none>}" >&2
+    echo "cli-keys: known keys: ${KEY_NAMES[*]}" >&2
+    exit 2
+  fi
+
+  # The environment wins: a process that hydration already reached carries the value,
+  # and it is the same one the provider would be handed.
+  eval "from_env=\${$name:-}"
+  if [ -n "$from_env" ]; then
+    value="$from_env"
+    source="environment (\$$name)"
+  else
+    # Served whatever the cache's age: the expiry decides when to refresh, not what
+    # may be handed out. The name is validated above as an env-var identifier, so it
+    # is a safe jq path.
+    value="$(cache_field ".keys.$name")"
+    [ -n "$value" ] && source="cache ($CACHE)"
+  fi
+  if [ -z "$value" ]; then
+    echo "cli-keys: no value for $name in the environment and none in $CACHE" >&2
+    return 1
+  fi
+  if [ "$reveal" = 1 ]; then
+    printf '%s\n' "$value"
+    return 0
+  fi
+  # The mask is a HASH of the value, never a fragment of it: it is the same for the same
+  # credential, moves when the credential does, and cannot be turned back into it. The
+  # value goes into sha256sum's stdin, so it is never an argument and never printed.
+  printf 'key:    %s\n' "$name"
+  printf 'source: %s\n' "$source"
+  printf 'masked: sha256:%s  length: %s chars\n' "$(printf '%s' "$value" | sha256sum | cut -c1-12)" "${#value}"
+}
+
+status() {
+  local fetched expires name len
+  echo "cache:  $CACHE"
+  if [ -r "$VAULT_TOKEN_FILE" ]; then
+    echo "token:  $VAULT_TOKEN_FILE (mode $(stat -c '%a' "$VAULT_TOKEN_FILE"))"
+  else
+    echo "token:  absent ($VAULT_TOKEN_FILE) — a lapsed session then needs a manual login"
+  fi
+  if [ ! -e "$CACHE" ]; then
+    echo "state:  absent"
+    return 1
+  fi
+  echo "mode:   $(stat -c '%a' "$CACHE")"
+  fetched="$(cache_field '.fetched_epoch')"
+  expires="$(cache_field '.expires_epoch')"
+  if is_fresh; then
+    echo "state:  fresh (expires in $((expires - $(now_epoch)))s)"
+  else
+    echo "state:  stale (expired, still served)"
+  fi
+  [ -n "$fetched" ] && echo "age:    $(( $(now_epoch) - fetched ))s"
+  if [ "$(jq -r '.state // ""' "$REJECT_STATE" 2>/dev/null)" = rejected ]; then
+    echo "vault:  credential refused; last notice $(( $(now_epoch) - $(jq -r '.epoch // 0' "$REJECT_STATE" 2>/dev/null) ))s ago"
+  else
+    echo "vault:  credential accepted (no rejection recorded)"
+  fi
+  for name in "${KEY_NAMES[@]}"; do
+    len="$(jq -r --arg n "$name" '(.keys[$n] // "") | length' "$CACHE" 2>/dev/null)"
+    printf 'key:    %-22s %s chars\n' "$name" "${len:-0}"
+  done
+}
+
+usage() {
+  echo "usage: cli-keys [ensure [--json] [--force] | status | key <name> [--reveal] | cache-path | watch]"
+  echo "       key reports the credential's name, source, sha256 prefix and length and"
+  echo "       prints no value; --reveal prints the value itself to stdout, for"
+  echo "       models.json's command form. The vault fetch writes no value to stdout."
+}
+
+# usage_error <argument> — the ONE exit path for an argument this script cannot honour:
+# the offending token, then the usage line, then a non-zero status. An argument that is
+# quietly discarded is how `ensure --force` came to report success while fetching
+# nothing, so no branch below drops one.
+usage_error() {
+  echo "cli-keys: unknown argument: $1" >&2
+  usage >&2
+  exit 2
+}
+
+# no_extra_args <extra...> — a subcommand that takes no argument rejects anything it was
+# handed rather than ignoring it.
+no_extra_args() {
+  [ "$#" -eq 0 ] || usage_error "$1"
+}
+
+case "${1:-ensure}" in
+  ensure)
+    shift
+    json=0
+    force=0
+    for arg in "$@"; do
+      case "$arg" in
+        --json) json=1 ;;
+        --force) force=1 ;;
+        *) usage_error "$arg" ;;
+      esac
+    done
+    ensure "$json" "$force"
+    ;;
+  key)
+    shift
+    key "$@"
+    ;;
+  cache-path) no_extra_args "${@:2}"; printf '%s\n' "$CACHE" ;;
+  watch) no_extra_args "${@:2}"; watch ;;
+  status) no_extra_args "${@:2}"; status ;;
+  -h | --help) no_extra_args "${@:2}"; usage ;;
+  *) usage_error "$1" ;;
+esac

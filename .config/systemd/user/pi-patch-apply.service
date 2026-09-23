@@ -1,0 +1,21 @@
+[Unit]
+Description=Re-apply the local pi package patches (todo board refresh, crew-name display)
+Documentation=file:/home/tinoy/.pi/agent/patches/README.md
+# Runs the applier once and exits. No network and no graphical session are involved:
+# it reads managed-patches.conf, greps the installed files, and writes only when a
+# marker is missing. A non-zero exit means a patch could not be applied, and the unit
+# then shows as failed. StartLimitBurst bounds a trigger storm: the path unit fires on
+# every package rewrite, and exceeding the limit leaves a failed unit rather than a loop.
+StartLimitIntervalSec=60
+StartLimitBurst=10
+
+[Service]
+Type=oneshot
+ExecStart=/home/tinoy/.pi/agent/patches/apply-patches.sh
+TimeoutStartSec=90
+Restart=no
+NoNewPrivileges=yes
+PrivateNetwork=yes
+
+[Install]
+WantedBy=default.target

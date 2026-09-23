@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+# foreman-headless — launch a headless `pi -p` verification session, detached.
+#
+# Usage: foreman-headless <name> <prompt-file> [--model M] [--cwd DIR]
+#
+# Prints the pi PID to stdout and returns immediately. A fully-detached
+# watcher (foreman-headless-watch) waits for the pi process to exit, then
+# writes a completion marker, appends a JSONL row to the headless-runs
+# ledger, and fires a desktop notification.
+#
+# The prompt file is merged with a templated epilogue (report path, PASS/FAIL
+# line, best-effort intercom send). A `# REPORT_PATH: <abs path>` directive in
+# the prompt file pins the report path; otherwise it defaults to
+# <reports-dir>/<name>-<next-n>.md.
+
+set -u
+
+REPORTS_DIR="$HOME/.local/pi/foreman/reports"
+LEDGER="$HOME/.local/pi/foreman/headless-runs.jsonl"
+SESSIONS_ROOT="$HOME/.local/pi/foreman/headless-sessions"
+WATCHER="$HOME/.local/bin/foreman-headless-watch"
+DEFAULT_MODEL="deepseek-flash"
+
+usage() {
+  echo "usage: foreman-headless <name> <prompt-file> [--model M] [--cwd DIR]" >&2
+  exit 2
+}
+
+name="${1:-}"
+prompt="${2:-}"
+if [ -z "$name" ] || [ -z "$prompt" ]; then
+  usage
+fi
+if [ ! -f "$prompt" ]; then
+  echo "error: prompt file not found: $prompt" >&2
+  exit 2
+fi
+shift 2
+
+model="$DEFAULT_MODEL"
+cwd="$PWD"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --model) model="${2:-}"; shift 2 ;;
+    --cwd)   cwd="${2:-}";   shift 2 ;;
+    --help)  usage ;;
+    *) usage ;;
+  esac
+done
+
+# --- resolve the report path -------------------------------------------------
+# A `# REPORT_PATH: <abs>` directive in the prompt file wins (lets a caller pin
+# a path). Otherwise compute <name>-<next-n>.md from the reports directory.
+next_n() {
+  local base="$1" max=0 n f
+  for f in "$REPORTS_DIR"/"$base"-*.md; do
+    [ -e "$f" ] || continue
+    n="$(basename "$f")"
+    n="${n#"$base"-}"
+    n="${n%%.md}"
+    case "$n" in *-run) n="${n%-run}" ;; esac
+    case "$n" in ''|*[!0-9]*) continue ;; esac
+    if [ "$n" -gt "$max" ]; then max="$n"; fi
+  done
+  echo $((max + 1))
+}
+
+prompt_abs="$(readlink -f "$prompt")"
+report_path="$(grep -m1 '^# REPORT_PATH:' "$prompt_abs" 2>/dev/null | awk '{print $3}')"
+if [ -z "$report_path" ]; then
+  n="$(next_n "$name")"
+  report_path="$REPORTS_DIR/$name-$n.md"
+fi
+mkdir -p "$REPORTS_DIR"
+
+# --- build the merged prompt (original + templated epilogue) ------------------
+stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+session_dir="$SESSIONS_ROOT/$name-$stamp"
+mkdir -p "$session_dir"
+combined="/tmp/foreman-headless-$name-$stamp.prompt.md"
+
+# Copy the body, omitting any pinned REPORT_PATH directive so the epilogue is
+# the single, unambiguous statement of where to write.
+grep -v '^# REPORT_PATH:' "$prompt_abs" > "$combined" 2>/dev/null || cp "$prompt_abs" "$combined"
+
+cat >> "$combined" <<'EOF'
+
+==== headless-verification epilogue ====
+# REPORT_PATH: __REPORT_PATH__
+When finished, write your findings to the report path above.
+End your final stdout message with a compact line beginning exactly with "PASS/FAIL:".
+Best-effort — never fatal — attempt intercom({ action: "send", to: "foreman",
+message: "<your one-line PASS/FAIL summary>" }) and swallow any error.
+EOF
+sed -i "s|__REPORT_PATH__|$report_path|g" "$combined"
+
+# --- spawn detached watcher, hand off the pi PID ------------------------------
+log="/tmp/foreman-headless-$name.log"
+pidfile="/tmp/foreman-headless-$name.pid"
+rm -f "$pidfile" "$log" "/tmp/foreman-headless-$name.done"
+
+# Detached supervisor: it is the direct parent of pi, so it can `wait` and
+# capture the real exit code. setsid detaches it from this shell's session so
+# it survives the launcher exiting immediately.
+setsid "$WATCHER" "$name" "$combined" "$model" "$cwd" "$log" "$pidfile" \
+  "$report_path" "$session_dir" "$LEDGER" >/dev/null 2>&1 &
+
+# The launcher returns immediately with the pi PID, once it is known.
+for _ in $(seq 1 50); do
+  if [ -s "$pidfile" ]; then
+    break
+  fi
+  sleep 0.1
+done
+if [ -s "$pidfile" ]; then
+  cat "$pidfile"
+else
+  echo "0"
+fi

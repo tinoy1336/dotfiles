@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -e
+
+# Rebuild hyprpm plugins whenever hyprland itself changed: plugin .so files
+# embed the Hyprland API hash of the headers they were built against, and a
+# version change makes them post the "Mismatched Hyprland version!" notif at
+# load (hyprgrass does this). `sudo hyprpm update` rebuilds against the new
+# headers and targets /var/cache/hyprpm/<user> (same as `sudo hyprpm add`).
+before="$(pacman -Q hyprland 2>/dev/null | awk '{print $2}' || true)"
+
+yay -Syy && (yes "" | yay -Syu)
+
+after="$(pacman -Q hyprland 2>/dev/null | awk '{print $2}' || true)"
+if [ -n "$after" ] && [ "$before" != "$after" ]; then
+    echo "hyprland updated ($before -> $after) — rebuilding hyprpm plugins..."
+    # NOTE: no sudo — hyprpm refuses to run as superuser; it runs as the
+    # user against the user-owned /var/cache/hyprpm cache (2026-08-21).
+    hyprpm update || echo "WARNING: hyprpm update failed — run 'hyprpm update' manually."
+fi

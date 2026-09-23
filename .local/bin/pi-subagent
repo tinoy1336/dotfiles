@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Subagent launch wrapper for pi-subagents.
+# Marks a pi process as a subagent (PI_SUBAGENT=1, inherited by nested
+# children) so the canon extension can scope lines by audience; the extension
+# injects canon in every pi process.
+# Selected via PI_SUBAGENT_PI_BINARY (see pi-subagents docs/configuration.md).
+export PI_SUBAGENT=1
+exec /usr/bin/pi "$@"

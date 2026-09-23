@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# sudo shim for hyprpm (2026-08-21).
+#
+# hyprpm unconditionally shells out to "sudo <cmd> ... /var/cache/hyprpm/..."
+# for its cache operations (mkdir/rm/cp on headersRoot, plugin builds, state),
+# which fails in any non-interactive context even though the cache tree is
+# user-owned. hyprpm also refuses to run as root itself, so real sudo is not an
+# option. This shim runs those cache-path commands directly (as tinoy — the
+# tree is user-owned, no root needed) and passes EVERYTHING else through to
+# the real sudo unchanged.
+#
+# Safety: the only altered behavior is commands whose final argument lies
+# under /var/cache/hyprpm — a user-owned cache dir. All other sudo usage
+# (including -n probes, -A askpass flows, interactive prompts) is untouched.
+# Note: sudo applies umask 022 to commands it runs; hyprpm's own umask is
+# 077 (state files land as 600 otherwise). Match that here.
+if [ $# -ge 2 ] && [[ "${@: -1}" == /var/cache/hyprpm/* ]]; then
+    umask 022
+    # hyprpm installs cache files with -o 0 -g 0 (root ownership); run as tinoy
+    # that chown fails (EPERM). The cache tree is user-owned — strip the
+    # ownership flags and install as tinoy.
+    if [ "$1" = "install" ]; then
+        args=()
+        skip=0
+        for a in "${@:2}"; do
+            if [ "$skip" = "1" ]; then skip=0; continue; fi
+            case "$a" in
+                -o|-g) skip=1 ;;
+                *) args+=("$a") ;;
+            esac
+        done
+        exec install "${args[@]}"
+    fi
+    exec "$@"
+fi
+# hyprpm header/plugin installs: "sudo /bin/sh -c \"make -C '<builddir>' install\""
+# where the build dir lives under /run/user/<uid>/hyprpm or /var/cache/hyprpm
+# (both user-owned; the install prefix is the user-owned headersRoot). Run
+# directly as tinoy.
+if [ "$1" = "/bin/sh" ] && [ "$2" = "-c" ] && [[ "$3" == *hyprpm* ]]; then
+    umask 022
+    exec "$@"
+fi
+exec /usr/bin/sudo "$@"

@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "[*] Blocking Bluetooth via rfkill..."
+sudo rfkill block bluetooth || true
+
+echo "[*] Stopping bluetooth.service..."
+sudo systemctl stop bluetooth
+
+echo "[*] Reloading btusb module..."
+sudo modprobe -r btusb
+sudo modprobe btusb
+
+echo "[*] Starting bluetooth.service..."
+sudo systemctl start bluetooth
+
+echo "[*] Unblocking Bluetooth..."
+sudo rfkill unblock bluetooth
+
+echo
+echo "[*] Controllers:"
+bluetoothctl list || true
+
+echo
+echo "[*] Done."
