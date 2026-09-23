@@ -940,7 +940,7 @@
     }
   },
   "screengrab": {
-    "dir": "~/Pictures/ScreenCaptures",
+    "dir": "~/pictures/screencaps",
     "format": "png",
     "jpegQuality": 80,
     "codec": "h264",
