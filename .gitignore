@@ -55,9 +55,6 @@
 !/.config/hypr/
 !/.config/kitty/
 !/.config/haruna/
-!/.config/mpv/
-!/.config/rofi/
-!/.config/swaync/
 !/.config/yad/
 !/.config/htop/
 !/.config/yay/
@@ -116,7 +113,7 @@ __pycache__/
 *.log
 *.bak
 *.bak-*
-.ags-*
+.tinshell-*
 .Trash-*
 
 # --- 6. HARD DENIES — redundant with /* on purpose: they must survive a future
@@ -213,14 +210,14 @@ __pycache__/
 /.mp3tag/
 /.hplip/
 
-# 6e. the project's vendored and generated trees are its own repository's business.
-# They live in the shell's own tree, which the /dev rule ignores. These two
-# are different directories that still exist:
+# 6e. pre-rename backups of the shell tree. The live tree is a separate
+# repository under /dev/; these two copies still sit in $HOME:
 /.config/ags-backup-popover/
 /.config/ags-archive-internal-panel/
 
 # 6f. machine-generated application state
 /.local/state/
+/.local/state/ags-migrated-*
 /.local/share/
 /.local/pi/
 /.local/lib/
@@ -299,6 +296,9 @@ __pycache__/
 # 6j. user data, media and other work trees at the home root
 /aur/
 /dev/
+# the pre-rename backup of the old shell tree — its count is machine state, so
+# no part of it travels; every ags-* link inside it is dangling
+/migration-backup-2026-09-23/
 /downloads/
 /documents/
 /desktop/
@@ -390,12 +390,3 @@ __pycache__/
 /.local/pi/foreman/*
 !/.local/pi/foreman/worker.md
 !/.local/pi/foreman/clockout.md
-
-# --- 7. OPTIONAL: promote these if they are part of the restore point --------
-# Each line is a deliberate exception. The four root ags-overnight-* report
-# files, handoffs/ and files-redesign/ are working documents and are left
-# excluded by /* on purpose.
-# !/handoffs/
-# !/wallpapers/
-# !/documents/
-# !/*.md
