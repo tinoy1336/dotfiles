@@ -43,10 +43,16 @@ Two more sources feed the same list:
   installed under `~/.pi/agent/npm/node_modules/` — see §6.
 
 A subdirectory is an extension unit only if it has an `index.ts` (or a
-`package.json` declaring `pi.extensions`). That single rule is what makes
-`fleet/` and `io-guard/` extensions while `lib/` and `subagent/` are not. Both of
-those subdirectory units now come from the `@tinoy/pi-fleet` package, so nothing
-under this directory registers through that rule any more.
+`package.json` declaring `pi.extensions`). That single rule is what made
+`fleet/` and `io-guard/` units while `lib/` and `subagent/` are not; `fleet/` and
+`io-guard/` now hold documentation and configuration only — no `.ts` file at all —
+so nothing under this directory registers through that rule any more, and the
+code they held lives in the `pi-extensions` checkout as three packages (§6):
+`@tinoy/pi-fleet` (the crew/foreman extension), `@tinoy/pi-io-guard` (the claims
+store, the identity resolution and the io-guard write hooks — split OUT of fleet)
+and `@tinoy/pi-build` (the `build` tool and the crew build environment). All
+three are installed as `file:` links to that checkout rather than from the
+registry, because `@tinoy/pi-io-guard` was never published — see §6.
 
 ### The child allowlist — every subagent session
 
@@ -116,15 +122,15 @@ other path. The child-side sections below name the markers they read.
   children only: the `context-mode` pi adapter, `pi-web-access`,
   `@tinoy/pi-todo-parent/index.ts`, `@tinoy/pi-drift-anchor/index.ts`,
   `sudo-approve` (the one entry still a local file in this directory, because its
-  package is not published yet), `@tinoy/pi-fleet/io-guard/index.ts`,
+  package is not published yet), `@tinoy/pi-io-guard/index.ts`,
   `@tinoy/pi-build/index.ts`, and the canon
   package's entry file (`~/.pi/agent/npm/node_modules/@tinoy/pi-canon/index.ts` —
   canon is an installed package, never a file in this directory).
   A worker child is therefore the one child that renders a canon block; every
   other agent's child still renders none.
 - `oracle`, `scout`, `researcher` and `delegate` list `pi-web-access` only.
-  `reviewer` lists nothing, so a `reviewer` child runs with the ten defaults and
-  no extension-provided tools of its own.
+  `reviewer` lists nothing, so a `reviewer` child runs with the eleven defaults
+  and no extension-provided tools of its own.
 
 ---
 
@@ -213,14 +219,17 @@ with "absent → ambient discovery preserved"; it is not a direct observation.
 `worker` agent, which is the only agent carrying extra paths.
 
 Read every file name in the table below as the package's ENTRY FILE, not as a
-file in this directory: the set is consumed as nineteen published packages
+file in this directory: the set is consumed as twenty-two packages
 (`@tinoy/pi-*`, listed in settings `packages[]`) plus `sudo-approve.ts`, which
-is still a local file. §6 names the packages and the two data files they read
-from this machine.
+is still a local file. The three that were split out of the old `@tinoy/pi-fleet`
+package are the ones named in full — `@tinoy/pi-build/index.ts`,
+`@tinoy/pi-fleet/index.ts`, `@tinoy/pi-io-guard/index.ts` — because they are the
+trio installed as `file:` links rather than as registry copies (§6). §6 names the
+packages and the two data files they read from this machine.
 
 | Entry | Registers | Parent | Child | Deciding mechanism |
 | --- | --- | --- | --- | --- |
-| `build.ts` | `build` tool | yes | worker only | ambient + `worker.subagentOnlyExtensions` |
+| `@tinoy/pi-build/index.ts` | `build` tool | yes | worker only | ambient + `worker.subagentOnlyExtensions` |
 | `cache-prefix-log.ts` | hooks only | yes | yes | `defaultExtensions` |
 | `@tinoy/pi-canon` (installed package) | `canon_add/edit/remove/category`, `/canon`, `/canon-dump` | yes | worker only | settings `packages` (`npm:@tinoy/pi-canon`) + `worker.subagentOnlyExtensions` |
 | `child-prompt-freeze.ts` | hooks only | yes (no-op) | yes | `defaultExtensions` |
@@ -230,11 +239,11 @@ from this machine.
 | `deepseek-cost.ts` | footer renderer | yes | no | ambient only |
 | `desktop-notify.ts` | `desktop_notify` tool | yes | no | ambient only; on no child list, and self-disables on either child marker or `hasUI === false` |
 | `drift-anchor.ts` | `set_anchor` tool, `/anchor`, 4 hooks | yes | worker only | ambient + `worker.subagentOnlyExtensions` |
-| `fleet/index.ts` | `fleet` tool; foreman arming (`PI_FOREMAN=1` read at `session_start`, the `pi-foreman` launcher's marker) plus the `foreman-off` escape command | yes | no | ambient only |
+| `@tinoy/pi-fleet/index.ts` | `fleet` tool; foreman arming (`PI_FOREMAN=1` read at `session_start`, the `pi-foreman` launcher's marker) plus the `foreman-off` escape command | yes | no | ambient only |
 | `focus-gate.ts` | `tool_call` + `context` + `session_start`/`session_shutdown` hooks, `/focus` | yes | yes | `defaultExtensions` |
 | `image-read.ts` | `image_read` tool | yes | yes | `defaultExtensions` |
 | `intercom-broadcast.ts` | `broadcast` tool | yes | no | ambient only |
-| `io-guard/index.ts` | `io_status` tool + write hooks | yes | worker only | ambient + `worker.subagentOnlyExtensions` |
+| `@tinoy/pi-io-guard/index.ts` | `io_status` tool + write hooks | yes | worker only | ambient + `worker.subagentOnlyExtensions` |
 | `nf.ts` | `nf` tool | yes | yes | `defaultExtensions` |
 | `no-subagent-fork.ts` | `tool_call` hook | yes | yes | `defaultExtensions` |
 | `orphan-repair.ts` | `before_provider_request` hook | yes | yes | `defaultExtensions` |
@@ -246,8 +255,10 @@ from this machine.
 | `lib/*.ts` | nothing | n/a | n/a | not an extension unit — see §5 |
 | `subagent/config.json` | nothing | n/a | n/a | pi-subagents config, not an extension — see §5 |
 
-Totals: 21 top-level `.ts` units, 2 subdirectory units (`fleet/`, `io-guard/`),
-and a child set of 10 (defaults) + 0–8 (agent-specific).
+Totals: 23 extension entries — 22 packages plus the one top-level `.ts` unit
+(`sudo-approve.ts`), with no subdirectory unit left — and a child set of 11
+(defaults) + 0–8 (agent-specific). `fleet/` and `io-guard/` hold no code at all,
+and `lib/*.ts` are not units (§5).
 
 ---
 
@@ -666,7 +677,7 @@ release clear made in any session, and it counts a blocked call only for a row
 whose `kind` is `block` (the same source also logs diagnostics that block
 nothing).
 
-**`fleet/index.ts`** — the foreman crew tool, for foreman sessions only.
+**`@tinoy/pi-fleet/index.ts`** — the foreman crew tool, for foreman sessions only.
 One action-style tool that **replaces** the raw `subagent` tool while foreman
 mode is on: every crew action is addressed by worker name (the tool owns the
 name → async-run-id map), idle time is measured and the warm-reuse decision is
@@ -692,6 +703,19 @@ does have its tool set touched: the tool is registered in every session, and
 mode file says ON or the session arrived with `PI_FOREMAN=1`; a session that
 qualifies either way re-arms the fixed foreman set. A failed activation leaves
 the previous tool set in place and the mode OFF.
+
+The re-armed set carries the injected loader tools with it. `subagents_enable`
+and `web_enable` are admitted at activation, kept by the stray sweep on every
+tool call, and listed BY NAME in a `LOADER_TOOLS` constant — never matched by an
+`_enable` suffix, because that suffix is a naming convention, not a contract, and
+a third-party tool that happened to match it would inherit permanent sweep
+immunity and a permanent prompt bullet. The reason the exception exists at all is
+cache stability: the extension that owns a loader re-adds it on the typed path
+only, so sweeping it out of the active set here would make the next typed run
+render one prompt bullet more than the run before it, and a head that moves
+re-bills the conversation behind it. The payload filter still drops both names
+from the wire, so the prompt advertises a tool the request withholds — a stable
+head in exchange for a bullet the model cannot act on.
 
 *Entry point.* `~/.local/bin/pi-foreman` is the launcher, and it is the only way
 in: it sets `PI_FOREMAN=1` (the literal `1`, overwriting any
@@ -732,7 +756,7 @@ artifacts — the run record's `sessionFile`, last usage entry — never summed
 across runs, because every run of one worker identity appends to the same lineage
 transcript. Reasoning, arithmetic and the run-record fallback: `fleet/AGENTS.md`
 §Usage, context fill and fatigue.
-*Spec:* entry `fleet/index.ts` plus 12 modules (`adopt`, `board`, `items`, `launch`, `mode`,
+*Spec:* entry `@tinoy/pi-fleet/index.ts` plus 12 modules (`adopt`, `board`, `items`, `launch`, `mode`,
 `predicates`, `release`, `retire`, `roster`, `section`, `status`, `config.json`) and four
 runnable probes (`status.probe.ts` beside `status.ts`, `predicates.probe.ts`,
 `release.probe.ts`, `board.probe.ts` — loaded by neither pi nor
@@ -743,7 +767,10 @@ type-stripping refuses node_modules); command
 config `fleet/config.json` →
 `reuseWindowSeconds` (the user-set prompt-cache reuse window, whose value exists in
 no other file: not in code, refusal text, tests or a spec); reads `HOME`,
-`PI_MODEL`; imports `../lib/tool-header.ts`, `../io-guard/claims.ts`.
+`PI_MODEL`; imports `@tinoy/pi-ext-lib` (`hookLog` and the header builders) and
+the `@tinoy/pi-io-guard` package (`claims.ts` for the claim read and write,
+`identity.ts` for the liveness check) — the io-guard package, not a subpath of
+its own, since the split.
 *Detail:* `fleet/AGENTS.md` is the long-form spec for this subsystem.
 
 ### 4.3 Loaded by the parent and by worker children only
@@ -794,18 +821,31 @@ This is §2 and §7.
 hooks), while the worker's `tools` list in `settings.json` names none of the canon
 tools — for a worker child the loaded store IS the block, not `canon_add`.
 
-**`build.ts`** — bounded build/checker runner (canon R2 enforcement).
+**`@tinoy/pi-build/index.ts`** — bounded build/checker runner (canon R2 enforcement).
 Runs a command through `bash -c` (with cwd, `timeoutMs` 5 s–900 s, default
 300 s), sends full output to a log file so it never enters the conversation, and
 returns exit code, duration, line count, error/warning lines (regex
 `error|warning|fail|fatal|exception|✗|✖|cannot find|not found|E:`; first 30, else
 last 15 raw lines) and the log path. Extra detail is retrieved from the log with
 `read` offset/limit rather than by re-running the command.
-*Spec:* logs to `/tmp/pi-build-logs/<ts>-<slug>.log`; strips `PI_SUBAGENT`,
-`PI_SUBAGENTS`, `PI_SESSION` and `PI_INTERCOM` prefixed variables from the child
-environment (`ENV_STRIP_PREFIXES`); imports `io-guard/identity.ts`,
-`io-guard/claims.ts` and `lib/tool-header.ts`, so it pulls io-guard modules into
-any session that loads it.
+*Spec:* resolves the crew store through the `@tinoy/pi-io-guard` package — a
+guarded DYNAMIC import of `claims.ts` (`ioRoot()`) and `identity.ts`
+(`identityHolder()`), attempted on the first build call and never at load — so a
+process without it is simply not a crew process: the build runs in the session's
+own environment and the absence is reported once by name. With a store AND an
+identity, the build runs against that worker's own roots
+(`<io root>/build/<worker>/{out,cache,tmp}`, created on demand and returned with
+the result) with those trees exported as `CARGO_TARGET_DIR`, `TMPDIR`,
+`XDG_CACHE_HOME`, `npm_config_cache`, `CCACHE_DIR` and `SCCACHE_DIR` into the
+build's OWN children; the distinction matters — the worker's plain `bash`
+children see none of them. Logs to `<io root>/build/logs/<ts>-<pid>-<slug>.log` (one shared log
+directory, the writer's pid in the filename so two builds cannot clobber each
+other's log) and falls back to `/tmp/pi-build-logs/` for a non-crew caller; one
+row per build is appended to `<io root>/builds.jsonl`. Strips `PI_SUBAGENT`,
+`PI_SUBAGENTS`, `PI_SESSION` and `PI_INTERCOM` prefixed variables plus five exact
+names (`ENV_STRIP_EXACT`) from that child environment. Imports `@tinoy/pi-ext-lib`
+(`hookLog`, `optionalNeighbour` and the header builders). What the private roots
+do and do not guarantee is §7.8.
 
 **`drift-anchor.ts`** — reasoning-register anchor: drift, cadence and hooks.
 RULE A is that every reasoning block opens with the literal line
@@ -844,7 +884,7 @@ injection log. Nothing writes it any more — it is a 0-byte leftover; the live
 route is the shared hook log.
 *Hazard:* §7 — this is the file that produced the child-run provider 400s.
 
-**`io-guard/index.ts`** — per-worker coordination for a crew sharing one tree.
+**`@tinoy/pi-io-guard/index.ts`** — per-worker coordination for a crew sharing one tree.
 Worker side is hooks only: it records what the worker read and guards what it
 writes. A write is allowed only when the path is inside the worker's **current**
 claim (read from the claim record, not the hire-time binding, which a resume
@@ -859,10 +899,13 @@ provides inspection and the atomic reclaim of a claim — the guard's side of it
 only: it moves the generation so a still-running worker's next write is refused,
 and ownership comes off through `fleet` (`fleet/release.ts`), because the hire-time
 overlap check reads the roster rather than this record.
-*Spec:* tool `io_status`; entry `io-guard/index.ts` plus 7 modules (`claims`,
+*Spec:* tool `io_status`; entry `@tinoy/pi-io-guard/index.ts` — its own package,
+split out of `@tinoy/pi-fleet` — plus 7 modules (`claims`,
 `identity`, `locks`, `pend`, `predicates`, `reap`, `versions`); reads
 `PI_SUBAGENT_CHILD`, `PI_SUBAGENT_EXTENSION_BINDINGS`; logs `io-guard` and
-`io-guard-lock` lines to the shared hook log.
+`io-guard-lock` lines to the shared hook log. The write it guards is refused by
+NAME when the path is outside the worker's claim; what the claim does and does
+not separate is §7.8.
 *Detail:* `io-guard/AGENTS.md` is the long-form spec for this subsystem.
 
 **`sudo-approve.ts`** — user-approved root command execution.
@@ -963,22 +1006,39 @@ imports from extension files resolve. It is not an extension entry.
 
 ## 6. Packages versus local files
 
-The set this directory describes is consumed as published packages. Each
-`@tinoy/pi-<name>` package declares its entry file in `package.json`
-(`pi.extensions`), is installed under `~/.pi/agent/npm/node_modules/`, and is
-named in settings `packages[]` for the parent. A child gets it only through an
-explicit path in a child list (§1) — `--no-extensions` removes `packages[]` too.
+The set this directory describes is consumed as packages. Each `@tinoy/pi-<name>`
+package declares its entry file in `package.json` (`pi.extensions`), is installed
+under `~/.pi/agent/npm/node_modules/`, and is named in settings `packages[]` for
+the parent. A child gets it only through an explicit path in a child list (§1) —
+`--no-extensions` removes `packages[]` too.
 
-Installed set (0.1.0 unless noted): `pi-build`, `pi-cache-prefix-log`,
-`pi-canon` (0.2.0), `pi-child-prompt-freeze`, `pi-child-request-dump`,
-`pi-cli-keys`, `pi-command-guard`, `pi-deepseek-cost`, `pi-desktop-notify`,
-`pi-drift-anchor`, `pi-fleet` (also provides `io-guard/index.ts`),
-`pi-focus-gate`, `pi-image-read`, `pi-intercom-broadcast`, `pi-nf`,
-`pi-no-subagent-fork`, `pi-orphan-repair`, `pi-pause`, `pi-probe`,
-`pi-read-staleness`, `pi-status-metrics`, `pi-todo-parent`. Library packages that
-ship no extension entry — `pi-ext-lib`, `pi-focus-state`, `pi-tariff` — are
-plain dependencies of those packages, installed beside them and never named in
-settings.
+Installed set (registry copies; each package carries its own version):
+`pi-cache-prefix-log`, `pi-canon`, `pi-child-prompt-freeze`,
+`pi-child-request-dump`, `pi-cli-keys`, `pi-command-guard`, `pi-deepseek-cost`,
+`pi-desktop-notify`, `pi-drift-anchor`, `pi-focus-gate`, `pi-image-read`,
+`pi-intercom-broadcast`, `pi-nf`, `pi-no-subagent-fork`, `pi-orphan-repair`,
+`pi-pause`, `pi-probe`, `pi-read-staleness`, `pi-status-metrics`,
+`pi-todo-parent`, plus the three `file:` bridges below. Library packages that ship
+no extension entry — `pi-ext-lib` (0.3.0), `pi-focus-state` (0.1.0),
+`pi-tariff` (0.1.0) — are plain dependencies of those packages, installed beside
+them and never named in settings.
+
+**The three package bridges.** `pi-fleet`, `pi-io-guard` and `pi-build` are
+`file:` links into the `pi-extensions` checkout — `node_modules/@tinoy/<name>` is
+a symlink to `~/dev/pi-extensions/packages/<name>` — not registry copies.
+`@tinoy/pi-io-guard` was never published, so every registry route into the split
+(`pi install npm:@tinoy/pi-fleet`, `pi update --extensions`) fails on it, and the
+checkout is the only working mirror of the fixed code. The settings entries are
+still spelled `npm:@tinoy/<name>`: pi skips the install whenever the resolved
+path exists, so no network install is attempted, and the version fields (fleet
+0.2.3, io-guard 0.1.0, build 0.2.0) are the checkout's own. Editing the checkout
+therefore changes what the next session loads with no install step in between;
+a frozen copy would mean packing the directory and installing the tarball
+instead. Two consequences worth stating: a pi-driven install or update of these
+three packages must not be run while io-guard is unpublished, and a name in a
+child list is a path, so it must be the new package path
+(`@tinoy/pi-io-guard/index.ts`) — the pre-split subpath
+(`@tinoy/pi-fleet/io-guard/index.ts`) no longer resolves at all.
 
 **`@tinoy/pi-ext-lib` must be 0.2.0 or newer.** `pi-build`, `pi-fleet` and
 `pi-todo-parent` import `optionalNeighbour` from it; ext-lib 0.1.0 lacks that
@@ -1101,13 +1161,14 @@ settings.
 must be listed as an explicit path in that agent's `subagentOnlyExtensions`,
 which is why `pi-web-access/index.ts` is repeated across four agent definitions.
 
-**7.5 `build.ts` pulls io-guard modules, and `fleet/index.ts` pulls io-guard
-claims.** Both import from `io-guard/`, so loading either evaluates io-guard's
-`identity.ts` and `claims.ts` modules even in sessions where the io-guard
-extension entry point would not otherwise register. In a worker child both
-`build.ts` and `io-guard/index.ts` are on the list, so this is currently benign;
-it stops being benign if `io-guard/index.ts` is ever removed from the worker's
-list while `build.ts` stays.
+**7.5 `build` pulls io-guard modules, and `fleet` pulls io-guard claims.** Both
+reach them through the `@tinoy/pi-io-guard` package — static imports in fleet,
+a guarded dynamic import of the same two modules in build — so loading either
+evaluates io-guard's `identity.ts` and `claims.ts` even in a session where the
+io-guard extension entry point would not otherwise register. In a worker child
+both `@tinoy/pi-build/index.ts` and `@tinoy/pi-io-guard/index.ts` are on the
+list, so this is currently benign; it stops being benign if the io-guard entry is
+ever removed from the worker's list while the build entry stays.
 
 **7.6 Handler order is the extension directory's order, and it is unspecified.**
 Two extensions that normalise the same `before_provider_request` payload can
@@ -1121,6 +1182,25 @@ appear at the next session start or on `/reload-runtime`, and a running session
 keeps the module it loaded — a block message seen in-session may be the pre-edit
 text.
 
+**7.8 Worker isolation is TREE SEPARATION plus a WRITE BARRIER — not access
+control.** A crew worker's build runs against its own roots
+(`<io root>/build/<worker>/{out,cache,tmp}`) and its writes pass through the
+io-guard claim, so two workers never contend on one output tree and a write
+outside the worker's own claim is refused by name. The refusal is a predicate,
+not a filesystem permission: a bash-launched descendant of a worker resolves the
+same binding but is refused the claim, so it cannot write under the crew store at
+all. What the barrier does NOT buy, and what a reader must not assume from it, is
+**filesystem separation**: every worker runs as the same uid and the roots are
+mode 755 (`drwxr-xr-x`), so a neighbour's build tree, state and reports are
+listable and READABLE from any other worker. Only WRITES are refused. Read the
+guarantee exactly — "you must not be able to write another worker's files" holds;
+"you must not be able to reach them at all" does not, and never did. The
+isolation the split restored is separate output, cache and temp trees plus the
+write barrier, not filesystem separation. One further limit belongs here for the
+same reason: the per-worker `TMPDIR` / `XDG_CACHE_HOME` / `CARGO_TARGET_DIR` reach
+build-spawned commands only — a worker's own bash-tool children still see them
+unset and land in the session temp directory.
+
 ---
 
 ## 8. Canon for children — what is live, and what is still open
@@ -1131,7 +1211,7 @@ store and renders the block its `{subagent}` audience set matches, exactly as
 the parent renders its own (§4.3). No other agent's child loads canon.
 
 **Still open: every other agent's children.** `oracle`, `scout`, `researcher`,
-`reviewer` and `delegate` children run the ten defaults, so the standing rules
+`reviewer` and `delegate` children run the eleven defaults, so the standing rules
 those roles need — the input-injection rule, one-writer-per-file,
 `context: "fresh"`, spec-in-the-same-change — have to be restated verbatim in
 each dispatch brief. `subagents.defaultExtensions` is the only list that reaches
