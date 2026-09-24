@@ -295,9 +295,6 @@ __pycache__/
 /.config/QtProject.conf
 /.config/Trolltech.conf
 
-# 6i. stale-but-tempting superseded copies
-/.local/bin/screenshot-region.bak-predegenerate
-
 # 6j. user data, media and other work trees at the home root
 /aur/
 /dev/
