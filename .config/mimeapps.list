@@ -8,7 +8,6 @@ x-scheme-handler/signalcaptcha=signal.desktop;
 x-scheme-handler/discord=vesktop.desktop
 x-scheme-handler/http=firefox.desktop;
 x-scheme-handler/https=firefox.desktop;
-x-scheme-handler/ytmd=youtube-music-desktop-app.desktop
 x-scheme-handler/claude-cli=claude-code-url-handler.desktop
 x-scheme-handler/nora=electron.desktop
 x-scheme-handler/zcode=zcode.desktop
