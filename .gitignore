@@ -214,6 +214,25 @@ __pycache__/
 /.foobar2000/
 /.mp3tag/
 /.hplip/
+# the hand-written stylesheets inside those two profiles are opened by name:
+# the editor's vibrancy extension imports one through the `vscode_vibrancy.imports`
+# setting, and the player mounts the two themes. Neither application writes
+# them, and neither is backed up elsewhere — Settings Sync carries the setting
+# that names the stylesheet, not the stylesheet, and the player's own updater
+# carries no such file. Every sibling stays denied: the editor's profile holds
+# an OSCrypt key blob, a machine id, cookies, the sync payloads and an
+# extension-state database, and the player's config.json holds its Last.fm
+# credentials.
+!/.config/Code/
+/.config/Code/*
+!/.config/Code/User/
+/.config/Code/User/*
+!/.config/Code/User/vibrancy-glass.css
+!/.config/YouTube Music/
+/.config/YouTube Music/*
+!/.config/YouTube Music/themes/
+/.config/YouTube Music/themes/*
+!/.config/YouTube Music/themes/*.css
 
 # 6e. pre-rename backups of the shell tree. The live tree is a separate
 # repository under /dev/; these two copies still sit in $HOME:

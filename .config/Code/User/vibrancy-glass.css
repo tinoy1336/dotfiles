@@ -1,0 +1,30 @@
+/* VS Code empty-editor watermark ("letterpress") — user CSS, loaded through
+   vscode_vibrancy.imports.
+
+   WHY CSS IS THE ONLY ROUTE: the glyph is not painted from a colour key. The
+   element is `.letterpress` and its paint is a background-image of a shipped
+   SVG, `letterpress-dark.svg` (`.monaco-workbench.vs-dark …`), whose path
+   carries a hardcoded `fill="black"` inside `<g opacity="0.3">` (the light
+   variant is the same black at 0.05). No rule anywhere sets `color`, `opacity`,
+   `filter` or `background-color` on `.letterpress`, and the asset contains no
+   `currentColor` and no `var()`, so no `workbench.colorCustomizations` key can
+   reach it. `editorWatermark.foreground` does not exist in this build.
+
+   SELECTOR: the ancestor chain is not repeated — nothing competes for
+   `filter`/`opacity` on this element, so no specificity is needed, and the
+   shorter chain survives changes to the intermediate wrappers.
+
+   KEEP EXACTLY ONE of the two blocks below. */
+
+/* 1. Faint whisper: `invert(1)` turns the baked black glyph white, `opacity`
+      drops it to a hint, so the frost is the surface and the artwork a hint. */
+.monaco-workbench .editor-group-watermark .letterpress {
+  filter: invert(1);
+  opacity: 0.35;
+}
+
+/* 2. Remove the glyph outright, keeping the shortcut hint list:
+.monaco-workbench .editor-group-watermark .letterpress {
+  display: none;
+}
+*/
