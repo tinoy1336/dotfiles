@@ -966,7 +966,9 @@ would have made that permanent and silently cost the foreman the reply channel f
 its own workers. So the payload filter admits any tool in `FOREMAN_TOOLS`, whether
 it was present at activation or arrived afterwards, and drops only what is outside
 that list; the drift handler removes strays only, never a legitimate late arrival —
-with one deliberate exception, the loader tools (`*_enable`). A loader is re-added by
+with one deliberate exception, the loader tools named in `LOADER_TOOLS`
+(`subagents_enable`, `web_enable` — listed by name, never by pattern: `_enable` is a
+convention, not a contract). A loader is re-added by
 its owning extension on every typed run, and pi renders one prompt bullet per selected
 tool at the head of the system prompt: taking a loader out of the active set makes the
 next run render something the typed path would not, because `before_agent_start` runs
