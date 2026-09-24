@@ -1,6 +1,6 @@
 {
   "dnd": {
-    "enabled": false
+    "enabled": true
   },
   "popup": {
     "width": 360,
@@ -12,6 +12,8 @@
   },
   "centre": {
     "width": 500,
+    "minHeight": 220,
+    "maxHeight": 600,
     "height": 600
   },
   "grouping": {
