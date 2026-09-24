@@ -309,6 +309,88 @@ __pycache__/
 /Notes/
 /ZCodeProject/
 
+# --- 6k. the pi agent environment: the configuration in, the state out -------
+# The pi tree is deny-listed at 6a and 6b and stays deny-listed: what follows
+# re-includes the narrowest paths that carry the agent's configuration — the
+# settings, the model table, the canon store, the locally authored extensions,
+# the skills, the patch set and its scripts. The deny lines are repeated here on
+# purpose: gitignore resolves a path by the LAST matching pattern, so a
+# re-include of a parent would otherwise sweep a credential, a transcript or a
+# package install tree back in.
+!/.pi/
+/.pi/*
+!/.pi/settings.json
+!/.pi/agent/
+/.pi/agent/*
+!/.pi/agent/settings.json
+!/.pi/agent/models.json
+# a search-provider key, the agent's auth store, machine trust, crash logs, the
+# generated model catalogue and the glyph dataset a package install writes
+/.pi/web-search.json
+/.pi/agent/auth.json
+/.pi/agent/trust.json
+/.pi/agent/models-store.json
+/.pi/agent/data/
+/.pi/agent/pi-crash.log
+/.pi/agent/pi-tui-crash.log
+/.pi/agent/run-history.jsonl
+/.pi/agent/missions/
+/.pi/agent/sessions/
+# the package install tree is restored by an install, not by a checkout, and the
+# ignore file pi writes in the directory beside it hides the two manifests as
+# well; carrying those would need `dotfiles add -f` past that file, the one
+# direction this whitelist exists to avoid, so the versions stay pi's record
+/.pi/agent/npm/
+# the canon store: the rules a session loads
+!/.pi/agent/canon/
+/.pi/agent/canon/*
+!/.pi/agent/canon/canon.json
+# the intercom configuration, not the runtime directory beside it
+!/.pi/agent/intercom/
+/.pi/agent/intercom/*
+!/.pi/agent/intercom/config.json
+# the locally authored extension sources and the spec sheets that describe them
+!/.pi/agent/extensions/
+/.pi/agent/extensions/*
+!/.pi/agent/extensions/AGENTS.md
+!/.pi/agent/extensions/sudo-approve.ts
+!/.pi/agent/extensions/lib/
+!/.pi/agent/extensions/fleet/
+!/.pi/agent/extensions/io-guard/
+!/.pi/agent/extensions/subagent/
+/.pi/agent/extensions/node_modules/
+# the tariff table carries this machine's billed rates and its own header says
+# it must not be published; lib/tariff.ts holds no rate of its own
+/.pi/agent/tariff.json
+/.pi/agent/extensions/tariff.json
+# the skills a session loads; the foreman directory holds a retired skill's
+# research reports rather than a skill the agent runs
+!/.pi/agent/skills/
+/.pi/agent/skills/foreman/
+# the patch set — the patches, the runner, the doctor and the self test —
+# without the apply log, its lock, the upstream copies the runner keeps and the
+# two patch replies a package bump superseded
+!/.pi/agent/patches/
+/.pi/agent/patches/apply.log
+/.pi/agent/patches/.apply.lock
+/.pi/agent/patches/**/pre-patch/
+/.pi/agent/patches/**/*.pre-rebase
+# the harnesses, without a run's output
+!/.pi/agent/test-rigs/
+/.pi/agent/test-rigs/**/runs/
+/.pi/agent/test-rigs/**/live/evidence/
+
+# --- 6l. the foreman crew's protocol documents --------------------------------
+# Two files that define how a worker behaves, kept so another machine runs the
+# same crew. Everything else under .local/pi/foreman/ is the record of a run —
+# handoffs, reports, item and roster files, the worker sandboxes — and stays out.
+!/.local/pi/
+/.local/pi/*
+!/.local/pi/foreman/
+/.local/pi/foreman/*
+!/.local/pi/foreman/worker.md
+!/.local/pi/foreman/clockout.md
+
 # --- 7. OPTIONAL: promote these if they are part of the restore point --------
 # Each line is a deliberate exception. The four root ags-overnight-* report
 # files, handoffs/ and files-redesign/ are working documents and are left
