@@ -314,7 +314,7 @@ __pycache__/
 # --- 6k. the pi agent environment: the configuration in, the state out -------
 # The pi tree is deny-listed at 6a and 6b and stays deny-listed: what follows
 # re-includes the narrowest paths that carry the agent's configuration — the
-# settings, the model table, the canon store, the locally authored extensions,
+# settings, the model table, the locally authored extensions,
 # the skills, the patch set and its scripts. The deny lines are repeated here on
 # purpose: gitignore resolves a path by the LAST matching pattern, so a
 # re-include of a parent would otherwise sweep a credential, a transcript or a
@@ -343,10 +343,10 @@ __pycache__/
 # well; carrying those would need `dotfiles add -f` past that file, the one
 # direction this whitelist exists to avoid, so the versions stay pi's record
 /.pi/agent/npm/
-# the canon store: the rules a session loads
-!/.pi/agent/canon/
-/.pi/agent/canon/*
-!/.pi/agent/canon/canon.json
+# the canon store holds the rules a session loads, but every running session
+# rewrites it as it works: carrying it would put that churn in every diff the
+# machine produces, so the directory is denied outright
+/.pi/agent/canon/
 # the intercom configuration, not the runtime directory beside it
 !/.pi/agent/intercom/
 /.pi/agent/intercom/*
