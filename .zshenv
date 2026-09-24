@@ -17,3 +17,7 @@ export PI_SUBAGENT_PI_BINARY=/home/tinoy/.local/bin/pi-subagent
 
 # Extended provider prompt-cache retention (OpenAI-compatible: up to 24h).
 export PI_CACHE_RETENTION=long
+
+# The sudo-approve package resolves the promptd router from this path; the package
+# ships no home-directory default, so an unset value refuses the approval route.
+export SUDO_APPROVE_ROUTE=/home/tinoy/.local/bin/tinshell-route
