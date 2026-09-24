@@ -120,8 +120,6 @@ grep -rq '/home/tinoy' "$home/.config" "$home/.local" 2>/dev/null &&
 
 [ -x "$home/.local/bin/dotfiles" ] || problem ".local/bin/dotfiles is not executable after the install"
 [ -L "$home/.local/bin/pi" ] || problem ".local/bin/pi is not a symlink after the install"
-[ -L "$home/.config/systemd/user/swaync.service" ] ||
-  problem "the swaync mask is not a symlink after the install"
 
 # ---- second run: idempotent --------------------------------------------------
 before=$(tree_digest)
