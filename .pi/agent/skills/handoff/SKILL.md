@@ -54,7 +54,7 @@ Never anywhere else. Same dir every time.
      by this launcher only.
    - A spawn that did die young is re-issued in this same detached form, with the log
      file read first — the successor's frozen session file is the tell.
-   - `$CWD` = the project dir the handoff is about (e.g. `~/.config/ags`).
+   - `$CWD` = the project dir the handoff is about (e.g. `/home/tinoy/dev/tinshell`).
    - `$MODEL` = the requested model as `provider/id` (e.g. `deepseek/deepseek-flash`; take it from `pi --list-models` if unsure).
    - `$HANDOFF` = the absolute path to the handoff file (the `@file` makes it the new session's initial message).
    - The launch goes through `launch-successor.sh`, NEVER a bare `bash -lc 'pi …'`: the script strips the crew identity from the environment (`PI_SUBAGENT`, `PI_SUBAGENT_CHILD`, `PI_SUBAGENT_PARENT_SESSION`, `PI_SUBAGENT_EXTENSION_BINDINGS`, `PI_INTERCOM_SESSION_ID`) plus `PI_FOREMAN`, and leaves `PI_SUBAGENT_PI_BINARY` and `PI_SUBAGENT_CACHE_RETENTION` alone. A successor that inherits a live worker's binding is refused every write for its whole life — and a worker-launched successor loses the subagents package entirely (`PI_SUBAGENT_CHILD=1` makes pi-subagents decline to register), so no crew verb works in it. If the successor must be a FOREMAN (a crew handoff), launch through `~/.local/bin/pi-foreman` instead once it is in place: it performs the same enumerated strip of the five identity names and then arms foreman mode itself. Those five names are one list in both — change both together.

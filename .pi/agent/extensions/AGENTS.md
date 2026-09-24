@@ -457,8 +457,8 @@ tools (`grim`, `grimblast`, `hyprshot`, …), input injection — the raw tools
 **and** the `~/.local/bin/inject` wrapper, which is the sanctioned front end —
 `gtk-launch`, terminal emulators (`kitty`/`alacritty`/`foot`/`wezterm`/`ghostty`,
 matched at command position so `find kitty -type f && …` is not a false
-positive), `run.sh <app>` (the `AGS_BUNDLE_WARM=1` build-only form passes through
-the entry's `unless` regex), `ags run`, and `ags`/`ags-route.sh` open/toggle
+positive), `run.sh <app>` (the `TINSHELL_BUNDLE_WARM=1` build-only form passes through
+the entry's `unless` regex), `ags run`, and `ags`/`tinshell-route.sh` open/toggle
 requests. Notifications are never gated.
 *Propagation:* the state file carries the mode, and every session process also
 WATCHES that file (`watchFocusState` in `lib/focus-state.ts`): on a change it
@@ -537,7 +537,7 @@ are no upstream tags); `sheet <code|name>…` renders a PIL contact sheet with
 in-pixel labels and is **vision-gated**, with a text-only fallback for non-vision
 models; `audit [dir]` scans `.ts`/`.tsx` for `\uXXXX` escapes, validates them
 against the dataset and flags PUA codepoints (0xE000–0xF8FF) that are unassigned,
-catching f3e2-class dead glyphs. The dataset lives outside the ags repo
+catching f3e2-class dead glyphs. The dataset lives outside the tinshell repo
 deliberately, to keep the 290 KB / 10,995-glyph table out of app bundles.
 *Spec:* dataset `~/.pi/agent/data/nf/nf.json`; reads `HOME`.
 

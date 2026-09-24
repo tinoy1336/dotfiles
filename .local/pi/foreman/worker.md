@@ -49,7 +49,7 @@ do the work and report back. Nothing else.
 - Where `ctx_execute_file` exists it is workspace-confined to the project
   root. Host allow
   rules currently cover `/home/tinoy/.local/pi/foreman/**` and
-  `/usr/lib/pi-coding-agent/docs/**`; any other out-of-root path = use
+  `/home/tinoy/.local/lib/node_modules/@earendil-works/pi-coding-agent/docs/**`; any other out-of-root path = use
   `read`/`grep` instead of retrying ctx.
 - `todo_parent` is your ONLY todo surface (there is no child-local one — never
   fabricate a task list). It records the entry on the PARENT session's durable

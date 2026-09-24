@@ -1,271 +1,276 @@
 {
-	"lastChangelogVersion": "0.87.1",
-	"theme": "dark",
-	"defaultProvider": "deepseek",
-	"defaultModel": "deepseek-flash",
-	"packages": [
-		"npm:pi-web-access",
-		"npm:pi-subagents",
-		"npm:pi-intercom",
-		"npm:@juicesharp/rpiv-ask-user-question",
-		"npm:context-mode",
-		"npm:@juicesharp/rpiv-todo",
-		"npm:cc-safety-net",
-		"npm:pi-markdown-preview",
-		"npm:@tinoy/pi-canon",
-		"npm:@tinoy/pi-cache-prefix-log",
-		"npm:@tinoy/pi-child-request-dump",
-		"npm:@tinoy/pi-child-prompt-freeze",
-		"npm:@tinoy/pi-no-subagent-fork",
-		"npm:@tinoy/pi-orphan-repair",
-		"npm:@tinoy/pi-image-read",
-		"npm:@tinoy/pi-nf",
-		"npm:@tinoy/pi-command-guard",
-		"npm:@tinoy/pi-focus-gate",
-		"npm:@tinoy/pi-cli-keys",
-		"npm:@tinoy/pi-pause",
-		"npm:@tinoy/pi-desktop-notify",
-		"npm:@tinoy/pi-probe",
-		"npm:@tinoy/pi-intercom-broadcast",
-		"npm:@tinoy/pi-status-metrics",
-		"npm:@tinoy/pi-read-staleness",
-		"npm:@tinoy/pi-build",
-		"npm:@tinoy/pi-drift-anchor",
-		"npm:@tinoy/pi-todo-parent",
-		"npm:@tinoy/pi-fleet",
-		"npm:@tinoy/pi-deepseek-cost"
-	],
-	"hideThinkingBlock": false,
-	"showCacheMissNotices": true,
-	"subagents": {
-		"defaultModel": "deepseek-flash",
-		"defaultExtensions": [
-			"/home/tinoy/.pi/agent/npm/node_modules/@tinoy/pi-child-request-dump/index.ts",
-			"/home/tinoy/.pi/agent/npm/node_modules/@tinoy/pi-child-prompt-freeze/index.ts",
-			"/home/tinoy/.pi/agent/npm/node_modules/@tinoy/pi-cache-prefix-log/index.ts",
-			"/home/tinoy/.pi/agent/npm/node_modules/@tinoy/pi-image-read/index.ts",
-			"/home/tinoy/.pi/agent/npm/node_modules/@tinoy/pi-nf/index.ts",
-			"/home/tinoy/.pi/agent/npm/node_modules/@tinoy/pi-command-guard/index.ts",
-			"/home/tinoy/.pi/agent/npm/node_modules/@tinoy/pi-no-subagent-fork/index.ts",
-			"/home/tinoy/.pi/agent/npm/node_modules/@tinoy/pi-focus-gate/index.ts",
-			"/home/tinoy/.pi/agent/npm/node_modules/@tinoy/pi-orphan-repair/index.ts",
-			"/home/tinoy/.pi/agent/npm/node_modules/@tinoy/pi-cli-keys/index.ts",
-			"/home/tinoy/.pi/agent/npm/node_modules/@tinoy/pi-pause/index.ts"
-		],
-		"agentOverrides": {
-			"oracle": {
-				"model": "deepseek-v4-pro",
-				"tools": [
-					"read",
-					"grep",
-					"find",
-					"ls",
-					"bash",
-					"web_search",
-					"fetch_content",
-					"get_search_content",
-					"source_check"
-				],
-				"excludeTools": [
-					"todo",
-					"subagent",
-					"subagent_supervisor",
-					"bg_wait",
-					"intercom",
-					"broadcast",
-					"desktop_notify",
-					"sudo_approve",
-					"set_anchor",
-					"ctx_stats",
-					"ctx_doctor",
-					"ctx_upgrade",
-					"ctx_insight",
-					"ctx_purge"
-				],
-				"subagentOnlyExtensions": [
-					"/home/tinoy/.pi/agent/npm/node_modules/pi-web-access/index.ts"
-				]
-			},
-			"worker": {
-				"tools": [
-					"read",
-					"grep",
-					"find",
-					"ls",
-					"bash",
-					"edit",
-					"write",
-					"contact_supervisor",
-					"todo_parent",
-					"ctx_execute",
-					"ctx_execute_file",
-					"ctx_batch_execute",
-					"ctx_search",
-					"ctx_index",
-					"web_search",
-					"fetch_content",
-					"get_search_content",
-					"source_check",
-					"image_read",
-					"nf",
-					"build",
-					"sudo_approve"
-				],
-				"subagentOnlyExtensions": [
-					"/home/tinoy/.pi/agent/npm/node_modules/context-mode/build/adapters/pi/extension.js",
-					"/home/tinoy/.pi/agent/npm/node_modules/pi-web-access/index.ts",
-					"/home/tinoy/.pi/agent/npm/node_modules/@tinoy/pi-todo-parent/index.ts",
-					"/home/tinoy/.pi/agent/npm/node_modules/@tinoy/pi-drift-anchor/index.ts",
-					"/home/tinoy/.pi/agent/extensions/sudo-approve.ts",
-					"/home/tinoy/.pi/agent/npm/node_modules/@tinoy/pi-fleet/io-guard/index.ts",
-					"/home/tinoy/.pi/agent/npm/node_modules/@tinoy/pi-build/index.ts",
-					"/home/tinoy/.pi/agent/npm/node_modules/@tinoy/pi-canon/index.ts"
-				],
-				"excludeTools": [
-					"todo",
-					"subagent",
-					"subagent_supervisor",
-					"bg_wait",
-					"intercom",
-					"broadcast",
-					"desktop_notify",
-					"set_anchor",
-					"ctx_stats",
-					"ctx_doctor",
-					"ctx_upgrade",
-					"ctx_insight",
-					"ctx_purge"
-				]
-			},
-			"scout": {
-				"tools": [
-					"read",
-					"grep",
-					"find",
-					"ls",
-					"bash",
-					"write",
-					"contact_supervisor",
-					"web_search",
-					"fetch_content",
-					"get_search_content",
-					"source_check",
-					"image_read",
-					"nf"
-				],
-				"excludeTools": [
-					"todo",
-					"subagent",
-					"subagent_supervisor",
-					"bg_wait",
-					"intercom",
-					"broadcast",
-					"desktop_notify",
-					"sudo_approve",
-					"set_anchor",
-					"ctx_stats",
-					"ctx_doctor",
-					"ctx_upgrade",
-					"ctx_insight",
-					"ctx_purge"
-				],
-				"subagentOnlyExtensions": [
-					"/home/tinoy/.pi/agent/npm/node_modules/pi-web-access/index.ts"
-				]
-			},
-			"researcher": {
-				"tools": [
-					"read",
-					"write",
-					"contact_supervisor",
-					"web_search",
-					"fetch_content",
-					"get_search_content",
-					"source_check"
-				],
-				"excludeTools": [
-					"todo",
-					"subagent",
-					"subagent_supervisor",
-					"bg_wait",
-					"intercom",
-					"broadcast",
-					"desktop_notify",
-					"sudo_approve",
-					"set_anchor",
-					"ctx_stats",
-					"ctx_doctor",
-					"ctx_upgrade",
-					"ctx_insight",
-					"ctx_purge"
-				],
-				"subagentOnlyExtensions": [
-					"/home/tinoy/.pi/agent/npm/node_modules/pi-web-access/index.ts"
-				]
-			},
-			"reviewer": {
-				"tools": [
-					"read",
-					"grep",
-					"find",
-					"ls",
-					"contact_supervisor"
-				],
-				"excludeTools": [
-					"todo",
-					"subagent",
-					"subagent_supervisor",
-					"bg_wait",
-					"intercom",
-					"broadcast",
-					"desktop_notify",
-					"sudo_approve",
-					"set_anchor",
-					"ctx_stats",
-					"ctx_doctor",
-					"ctx_upgrade",
-					"ctx_insight",
-					"ctx_purge"
-				]
-			},
-			"delegate": {
-				"tools": [
-					"read",
-					"grep",
-					"find",
-					"ls",
-					"bash",
-					"edit",
-					"write",
-					"contact_supervisor",
-					"web_search",
-					"fetch_content",
-					"get_search_content",
-					"source_check",
-					"image_read",
-					"nf"
-				],
-				"excludeTools": [
-					"todo",
-					"subagent",
-					"subagent_supervisor",
-					"bg_wait",
-					"intercom",
-					"broadcast",
-					"desktop_notify",
-					"sudo_approve",
-					"set_anchor",
-					"ctx_stats",
-					"ctx_doctor",
-					"ctx_upgrade",
-					"ctx_insight",
-					"ctx_purge"
-				],
-				"subagentOnlyExtensions": [
-					"/home/tinoy/.pi/agent/npm/node_modules/pi-web-access/index.ts"
-				]
-			}
-		}
-	},
-	"defaultThinkingLevel": "high"
+  "lastChangelogVersion": "0.87.1",
+  "theme": "dark",
+  "defaultProvider": "deepseek",
+  "defaultModel": "deepseek-flash",
+  "packages": [
+    "npm:pi-web-access",
+    "npm:pi-subagents",
+    "npm:pi-intercom",
+    "npm:@juicesharp/rpiv-ask-user-question",
+    "npm:context-mode",
+    "npm:@juicesharp/rpiv-todo",
+    "npm:cc-safety-net",
+    "npm:pi-markdown-preview",
+    "npm:@tinoy/pi-canon",
+    "npm:@tinoy/pi-cache-prefix-log",
+    "npm:@tinoy/pi-child-request-dump",
+    "npm:@tinoy/pi-child-prompt-freeze",
+    "npm:@tinoy/pi-no-subagent-fork",
+    "npm:@tinoy/pi-orphan-repair",
+    "npm:@tinoy/pi-image-read",
+    "npm:@tinoy/pi-nf",
+    "npm:@tinoy/pi-command-guard",
+    "npm:@tinoy/pi-focus-gate",
+    "npm:@tinoy/pi-cli-keys",
+    "npm:@tinoy/pi-pause",
+    "npm:@tinoy/pi-desktop-notify",
+    "npm:@tinoy/pi-probe",
+    "npm:@tinoy/pi-intercom-broadcast",
+    "npm:@tinoy/pi-status-metrics",
+    "npm:@tinoy/pi-read-staleness",
+    "npm:@tinoy/pi-build",
+    "npm:@tinoy/pi-drift-anchor",
+    "npm:@tinoy/pi-todo-parent",
+    "npm:@tinoy/pi-fleet",
+    "npm:@tinoy/pi-deepseek-cost"
+  ],
+  "hideThinkingBlock": false,
+  "showCacheMissNotices": true,
+  "subagents": {
+    "defaultModel": "deepseek-flash",
+    "defaultExtensions": [
+      "~/.pi/agent/npm/node_modules/@tinoy/pi-child-request-dump/index.ts",
+      "~/.pi/agent/npm/node_modules/@tinoy/pi-child-prompt-freeze/index.ts",
+      "~/.pi/agent/npm/node_modules/@tinoy/pi-cache-prefix-log/index.ts",
+      "~/.pi/agent/npm/node_modules/@tinoy/pi-image-read/index.ts",
+      "~/.pi/agent/npm/node_modules/@tinoy/pi-nf/index.ts",
+      "~/.pi/agent/npm/node_modules/@tinoy/pi-command-guard/index.ts",
+      "~/.pi/agent/npm/node_modules/@tinoy/pi-no-subagent-fork/index.ts",
+      "~/.pi/agent/npm/node_modules/@tinoy/pi-focus-gate/index.ts",
+      "~/.pi/agent/npm/node_modules/@tinoy/pi-orphan-repair/index.ts",
+      "~/.pi/agent/npm/node_modules/@tinoy/pi-cli-keys/index.ts",
+      "~/.pi/agent/npm/node_modules/@tinoy/pi-pause/index.ts"
+    ],
+    "agentOverrides": {
+      "oracle": {
+        "model": "deepseek-v4-pro",
+        "tools": [
+          "read",
+          "grep",
+          "find",
+          "ls",
+          "bash",
+          "web_search",
+          "fetch_content",
+          "get_search_content",
+          "source_check"
+        ],
+        "excludeTools": [
+          "todo",
+          "subagent",
+          "subagent_supervisor",
+          "bg_wait",
+          "intercom",
+          "broadcast",
+          "desktop_notify",
+          "sudo_approve",
+          "set_anchor",
+          "ctx_stats",
+          "ctx_doctor",
+          "ctx_upgrade",
+          "ctx_insight",
+          "ctx_purge"
+        ],
+        "subagentOnlyExtensions": [
+          "~/.pi/agent/npm/node_modules/pi-web-access/index.ts"
+        ]
+      },
+      "worker": {
+        "tools": [
+          "read",
+          "grep",
+          "find",
+          "ls",
+          "bash",
+          "edit",
+          "write",
+          "contact_supervisor",
+          "todo_parent",
+          "ctx_execute",
+          "ctx_execute_file",
+          "ctx_batch_execute",
+          "ctx_search",
+          "ctx_index",
+          "web_search",
+          "fetch_content",
+          "get_search_content",
+          "source_check",
+          "image_read",
+          "nf",
+          "build",
+          "sudo_approve"
+        ],
+        "subagentOnlyExtensions": [
+          "~/.pi/agent/npm/node_modules/context-mode/build/adapters/pi/extension.js",
+          "~/.pi/agent/npm/node_modules/pi-web-access/index.ts",
+          "~/.pi/agent/npm/node_modules/@tinoy/pi-todo-parent/index.ts",
+          "~/.pi/agent/npm/node_modules/@tinoy/pi-drift-anchor/index.ts",
+          "~/.pi/agent/extensions/sudo-approve.ts",
+          "~/.pi/agent/npm/node_modules/@tinoy/pi-fleet/io-guard/index.ts",
+          "~/.pi/agent/npm/node_modules/@tinoy/pi-build/index.ts",
+          "~/.pi/agent/npm/node_modules/@tinoy/pi-canon/index.ts"
+        ],
+        "excludeTools": [
+          "todo",
+          "subagent",
+          "subagent_supervisor",
+          "bg_wait",
+          "intercom",
+          "broadcast",
+          "desktop_notify",
+          "set_anchor",
+          "ctx_stats",
+          "ctx_doctor",
+          "ctx_upgrade",
+          "ctx_insight",
+          "ctx_purge"
+        ]
+      },
+      "scout": {
+        "tools": [
+          "read",
+          "grep",
+          "find",
+          "ls",
+          "bash",
+          "write",
+          "contact_supervisor",
+          "web_search",
+          "fetch_content",
+          "get_search_content",
+          "source_check",
+          "image_read",
+          "nf"
+        ],
+        "excludeTools": [
+          "todo",
+          "subagent",
+          "subagent_supervisor",
+          "bg_wait",
+          "intercom",
+          "broadcast",
+          "desktop_notify",
+          "sudo_approve",
+          "set_anchor",
+          "ctx_stats",
+          "ctx_doctor",
+          "ctx_upgrade",
+          "ctx_insight",
+          "ctx_purge"
+        ],
+        "subagentOnlyExtensions": [
+          "~/.pi/agent/npm/node_modules/pi-web-access/index.ts"
+        ]
+      },
+      "researcher": {
+        "tools": [
+          "read",
+          "write",
+          "contact_supervisor",
+          "web_search",
+          "fetch_content",
+          "get_search_content",
+          "source_check"
+        ],
+        "excludeTools": [
+          "todo",
+          "subagent",
+          "subagent_supervisor",
+          "bg_wait",
+          "intercom",
+          "broadcast",
+          "desktop_notify",
+          "sudo_approve",
+          "set_anchor",
+          "ctx_stats",
+          "ctx_doctor",
+          "ctx_upgrade",
+          "ctx_insight",
+          "ctx_purge"
+        ],
+        "subagentOnlyExtensions": [
+          "~/.pi/agent/npm/node_modules/pi-web-access/index.ts"
+        ]
+      },
+      "reviewer": {
+        "tools": [
+          "read",
+          "grep",
+          "find",
+          "ls",
+          "contact_supervisor"
+        ],
+        "excludeTools": [
+          "todo",
+          "subagent",
+          "subagent_supervisor",
+          "bg_wait",
+          "intercom",
+          "broadcast",
+          "desktop_notify",
+          "sudo_approve",
+          "set_anchor",
+          "ctx_stats",
+          "ctx_doctor",
+          "ctx_upgrade",
+          "ctx_insight",
+          "ctx_purge"
+        ]
+      },
+      "delegate": {
+        "tools": [
+          "read",
+          "grep",
+          "find",
+          "ls",
+          "bash",
+          "edit",
+          "write",
+          "contact_supervisor",
+          "web_search",
+          "fetch_content",
+          "get_search_content",
+          "source_check",
+          "image_read",
+          "nf"
+        ],
+        "excludeTools": [
+          "todo",
+          "subagent",
+          "subagent_supervisor",
+          "bg_wait",
+          "intercom",
+          "broadcast",
+          "desktop_notify",
+          "sudo_approve",
+          "set_anchor",
+          "ctx_stats",
+          "ctx_doctor",
+          "ctx_upgrade",
+          "ctx_insight",
+          "ctx_purge"
+        ],
+        "subagentOnlyExtensions": [
+          "~/.pi/agent/npm/node_modules/pi-web-access/index.ts"
+        ]
+      }
+    }
+  },
+  "defaultThinkingLevel": "high",
+  "terminal": {
+    "showTerminalProgress": false
+  },
+  "transport": "auto",
+  "cacheWarming": "streaming"
 }

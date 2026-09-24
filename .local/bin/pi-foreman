@@ -68,7 +68,14 @@ set -euo pipefail
 PROG=${0##*/}
 PI_BIN=/usr/bin/pi
 AGENT_DIR=${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}
-FLEET=$AGENT_DIR/extensions/fleet/index.ts
+# The fleet extension is registered by the @tinoy/pi-fleet package, whose manifest names
+# both of its entries (`fleet` and `io-guard`). Resolve the fleet one from that manifest
+# for the same reason as pi-subagents below: a literal path under <agent dir>/extensions
+# names a source file the package may stop shipping, and this launch then dies for nothing
+# while the local extensions directory still holds the data the package reads (fleet/config.json).
+FLEET_PKG=$AGENT_DIR/npm/node_modules/@tinoy/pi-fleet
+FLEET_ENTRY=$(jq -r '[.pi.extensions[] | select(endswith("/fleet/index.ts"))] | first // empty' "$FLEET_PKG/package.json" 2>/dev/null || true)
+FLEET=$FLEET_PKG/$FLEET_ENTRY
 # The crew tool is registered by the pi-subagents package, not by the fleet extension.
 # pi installs user-scope npm packages under <agent dir>/npm, and the entry file comes from
 # the package's own manifest: the package publishes compiled JavaScript, so a path written
@@ -278,7 +285,7 @@ done
 # The fleet extension is what reads the marker and arms the mode. Absent, or
 # present without the marker reader, the launch would come up as a plain session
 # with no crew tool and nothing would say so.
-[[ -f $FLEET ]] || die "no fleet extension at $FLEET: foreman mode is registered there, so nothing would arm. Point PI_CODING_AGENT_DIR at the agent directory that has it." 3
+[[ -f $FLEET ]] || die "no fleet extension at $FLEET (from $FLEET_PKG/package.json): foreman mode is registered there, so nothing would arm. Install the package in the agent directory (pi install npm:@tinoy/pi-fleet), or point PI_CODING_AGENT_DIR at the agent directory that has it." 3
 grep -q 'process\.env\.PI_FOREMAN' "$FLEET" ||
 	die "$FLEET does not read process.env.PI_FOREMAN, so this launch would start as a plain session (no crew tool, no discipline section). Apply the fleet-side launcher delta first." 3
 

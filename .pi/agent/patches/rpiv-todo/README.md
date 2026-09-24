@@ -5,7 +5,7 @@
 
 ## What it fixes
 
-`todo_parent` (the crew todo proxy at `~/.pi/agent/extensions/todo-parent.ts`) records a
+`todo_parent` (the crew todo proxy at `~/.pi/agent/npm/node_modules/@tinoy/pi-todo-parent/index.ts`) records a
 worker's mutation by appending a replay-compatible `todo` `toolResult` row to the spawning
 session's **branch**, then emitting `pi.events.emit("rpiv-todo:external-refresh", { sid })`.
 

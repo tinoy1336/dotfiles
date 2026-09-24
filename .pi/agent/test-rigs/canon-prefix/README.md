@@ -91,7 +91,7 @@ process path needs re-proving. Prior live-leg output is kept under
 ```sh
 python3 ~/.pi/agent/test-rigs/canon-prefix/live/run-leg.py parent 2 \
   ~/.pi/agent/npm/node_modules/@tinoy/pi-canon/index.ts \
-  ~/.pi/agent/extensions/cache-prefix-log.ts \
+  ~/.pi/agent/npm/node_modules/@tinoy/pi-cache-prefix-log/index.ts \
   ~/.pi/agent/test-rigs/canon-prefix/live/wake-probe.ts
 ```
 

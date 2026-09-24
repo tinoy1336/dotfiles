@@ -21,7 +21,7 @@ import { readFileSync, writeFileSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-const SRC = join(homedir(), ".pi/agent/extensions/command-guard.ts");
+const SRC = join(homedir(), ".pi/agent/npm/node_modules/@tinoy/pi-command-guard/index.ts");
 const TMP = "/tmp/pi-guard-probe-guard.ts";
 
 // Each fixture: [command, wantBlock, note, known?]
@@ -38,12 +38,12 @@ const FIXTURES = [
   ["ags bundle --help", true, "R2 ags bundle"],
   ["make", true, "R2 make"],
   ["tsc --noEmit", true, "R2 bare tsc"],
-  ["ls -la ~/.config/ags", false, "listing is allowed"],
+  ["ls -la ~/.config/tinshell", false, "listing is allowed"],
   ["cd /tmp && ls -la", false, "cd prefix then listing"],
   ["ags -i shell request \"dock ping\"", false, "request surface"],
   ["pgrep -af tinshell-shell", false, "process listing"],
   ["git status --short", false, "vcs state"],
-  ["tail -f /tmp/ags-debug.log", false, "follow mode"],
+  ["tail -f /tmp/tinshell-debug.log", false, "follow mode"],
   ["rg --files apps/dock", false, "listing mode"],
   ["cat", false, "cat with no operand reads stdin"],
   ["timeout 300 npx --no-install biome check apps/dock", true, "R2 through timeout (DURATION operand)"],
@@ -56,14 +56,13 @@ const FIXTURES = [
 
 let mod;
 try {
-  // command-guard value-imports the pi SDK, which only resolves inside pi itself;
-  // strip that import so the pure helpers can be exercised standalone. The temp
-  // copy lives outside the extensions dir, so the relative lib import is
-  // rewritten to an absolute specifier.
+  // command-guard value-imports the pi SDK and the shared extension lib, neither
+  // of which resolves outside pi's own module tree; strip every import of those
+  // two specifiers so the pure helpers can be exercised standalone. Only the
+  // default export reaches the stripped bindings.
   const src = readFileSync(SRC, "utf8")
-    .replace(/^import type \{ ExtensionAPI \}.*\n/m, "")
-    .replace(/^import \{ isToolCallEventType \}.*\n/m, "")
-    .replace(/from "\.\/lib\/hook-log\.ts"/, `from ${JSON.stringify(join(homedir(), ".pi/agent/extensions/lib/hook-log.ts"))}`);
+    .replace(/^import .*from "@earendil-works\/pi-coding-agent";\n/m, "")
+    .replace(/^import .*from "@tinoy\/pi-ext-lib";\n/m, "");
   writeFileSync(TMP, src);
   mod = await import("file://" + TMP + "?t=" + Date.now());
 } catch (err) {

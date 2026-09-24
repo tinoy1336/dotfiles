@@ -36,7 +36,7 @@ This skill REPORTS and RECOMMENDS — it never autonomously changes model behavi
 
 These are findings to LIST as recommended steps in the report for the user to decide on — never execute them autonomously (no canon_add, no extension edits, no command-guard changes, no ctx_index-ing):
 
-1. If bash burn grew: sample that period's bash commands (the report's first-words list shows what); recommend extending `~/.pi/agent/extensions/command-guard.ts` segment rules if a pattern emerges.
+1. If bash burn grew: sample that period's bash commands (the report's first-words list shows what); recommend extending `~/.pi/agent/npm/node_modules/@tinoy/pi-command-guard/index.ts` segment rules if a pattern emerges.
 2. If read burn grew: check repeat files; recommend `ctx_index` for them, or reviving the read-staleness-cache proposal (`~/pi-tool-optimization-report.md` T1).
 3. Write findings to a dated report file (`~/pi-tool-burn-<date>.md`), render via preview_export, report key beats inline.
 4. If a NEW durable waste pattern appears: describe it in the report with evidence and a proposed rule text — the USER decides whether it becomes a canon rule.

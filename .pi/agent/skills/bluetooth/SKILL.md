@@ -13,4 +13,4 @@ Load this skill whenever the trigger matches; the rules below are binding for th
 
 ## BT audio as default output
 
-AUDIO: user wants Bluetooth audio devices as the DEFAULT output — implemented via WirePlumber default-node policy `~/.config/wireplumber/50-bt-default.conf`: all bluez_output.* sinks get priority.session 1200 (AirPods volume special-case preserved). On BT disconnect WirePlumber falls back to internal speakers. Do NOT stack pipewire-pulse switch-on-connect on top — one mechanism only.
+AUDIO: user wants Bluetooth audio devices as the DEFAULT output — implemented via WirePlumber default-node policy `~/.config/wireplumber/wireplumber.conf.d/50-bt-default.conf`: all bluez_output.* sinks get priority.session 1200 (AirPods volume special-case preserved). On BT disconnect WirePlumber falls back to internal speakers. Do NOT stack pipewire-pulse switch-on-connect on top — one mechanism only.

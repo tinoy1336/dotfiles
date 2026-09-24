@@ -2,7 +2,7 @@
   "permissions": {
     "allow": [
       "Read(/home/tinoy/.local/pi/foreman/**)",
-      "Read(/usr/lib/pi-coding-agent/docs/**)"
+      "Read(/home/tinoy/.local/lib/node_modules/@earendil-works/pi-coding-agent/docs/**)"
     ]
   }
 }

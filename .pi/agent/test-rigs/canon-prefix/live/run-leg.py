@@ -13,7 +13,7 @@ for two provider requests, then closes stdin and reports the artifacts.
 Usage: run-leg.py <leg-name> <expect-requests> <ext...>
    env: LEG_CHILD=1              run child-shaped (the pi-subagents async-runner
                                  marker; a crew worker's launch shape).
-        LEG_CWD=<dir>            working dir for pi (default the ags repo).
+        LEG_CWD=<dir>            working dir for pi (default the tinshell tree).
 Artifacts land in ./evidence/live-<leg>/ next to this script.
 """
 import json, os, subprocess, sys, time, pathlib
@@ -44,10 +44,10 @@ if os.environ.get("LEG_CHILD") == "1":
     # PI_SUBAGENT_CHILD and never PI_SUBAGENT.
     env["PI_SUBAGENT_CHILD"] = "1"
 
-argv = ["/usr/lib/pi-coding-agent/pi", "--mode", "rpc", "--no-session"]
+argv = ["pi", "--mode", "rpc", "--no-session"]
 for e in exts:
     argv += ["--no-extensions" if e == exts[0] else "-e", e] if False else (["-e", e] if e != exts[0] else ["--no-extensions", "-e", e])
-p = subprocess.Popen(argv, cwd=os.environ.get("LEG_CWD", "/home/tinoy/.config/ags"), env=env,
+p = subprocess.Popen(argv, cwd=os.environ.get("LEG_CWD", "/home/tinoy/dev/tinshell"), env=env,
                      stdin=subprocess.PIPE, stdout=open(d / "rpc.out", "w"),
                      stderr=open(d / "rpc.err", "w"), text=True)
 print("started pid", p.pid, "argv", " ".join(argv))

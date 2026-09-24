@@ -13,7 +13,7 @@ Load this skill whenever the trigger matches; the rules below are binding for th
 
 ## Sensors — never address an IIO device by index
 
-**IIO device numbering is NOT stable across boots** (enumeration order shifts; on 2026-09-17 the screen accelerometer `accel_3d` moved from `iio:device2` to `iio:device3` while the ambient-light sensor `als` took `device2`). Resolve sensors by the `name` attribute instead — `prox` (×2, USB) / `als` / `accel_3d` expose no `in_accel_*` files, so a stale index raises on every read. `~/.local/bin/auto-rotate` (`auto-rotate.service`, started by hyprland.lua) and `~/.config/ags/common/tablet/watchdog.ts` (`findAccelDevice`) both discover `accel_3d` by name. Symptom of a stale index: journal spams `[auto-rotate] tablet=False` every 0.5 s and the display never rotates in tablet mode.
+**IIO device numbering is NOT stable across boots** (enumeration order shifts; on 2026-09-17 the screen accelerometer `accel_3d` moved from `iio:device2` to `iio:device3` while the ambient-light sensor `als` took `device2`). Resolve sensors by the `name` attribute instead — `prox` (×2, USB) / `als` / `accel_3d` expose no `in_accel_*` files, so a stale index raises on every read. `~/.local/bin/auto-rotate` (`auto-rotate.service`, started by hyprland.lua) and `/home/tinoy/dev/tinshell/common/tablet.ts` (`findAccelDevice`) both discover `accel_3d` by name. Symptom of a stale index: journal spams `[auto-rotate] tablet=False` every 0.5 s and the display never rotates in tablet mode.
 
 ## EC fuel gauge
 

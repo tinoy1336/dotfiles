@@ -164,7 +164,7 @@ function busOwned(name: string): Promise<boolean> {
   });
 }
 
-/** Servable probe — the same empty-request check ags-route.sh uses: a
+/** Servable probe — the same empty-request check tinshell-route.sh uses: a
  *  healthy instance answers instantly with its command namespaces. Catches
  *  the alive-but-frozen case (bus owned, mainloop wedged — 2026-08-31 OOM
  *  storm) that bus ownership alone cannot see. */
@@ -217,7 +217,7 @@ const PROBE_INTERVAL_MS = 3000;
 const PROBE_TIMEOUT_MS = 2500;
 const MAX_FAILED_ROUNDS = 3;
 
-/** Run `ags-route promptd <cmd>`; resolves with stdout ("" on failure).
+/** Run `tinshell-route promptd <cmd>`; resolves with stdout ("" on failure).
  *
  *  NO timeout while the host is alive and answering — the prompt window
  *  stays open until the user answers (the user's "indef" choice).

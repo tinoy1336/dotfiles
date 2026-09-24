@@ -42,7 +42,7 @@ const BOUNDARY =
 const AGENT_PROMPT = "You are `worker`: the implementation subagent.\n\nYou are the single writer thread.";
 const PROJECT = "<project_context>\n\nProject-specific instructions and guidelines:\n\n<project_instructions path=\"/x/AGENTS.md\">\n…rules…\n</project_instructions>\n\n</project_context>\n";
 const SKILLS = "\n\nThe following skills provide specialized instructions for specific tasks.\n<available_skills>\n  <skill>\n    <name>foreman</name>\n  </skill>\n</available_skills>";
-const CWD = "\nCurrent working directory: /home/tinoy/.config/ags";
+const CWD = "\nCurrent working directory: /home/tinoy/dev/tinshell";
 // prompt path (rewritten): boundary + agent prompt + inherited project context, skills stripped
 const REWRITTEN = `${BOUNDARY}\n\n${AGENT_PROMPT}${PROJECT}${CWD}`;
 // injected wake (no hook): the base prompt the runner built before the rewrite —
