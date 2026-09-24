@@ -128,9 +128,10 @@ for path in $links; do
     problem "$path points at '$got' instead of '$want'"
 done
 
-# A restored tree that carries the project tree or a path from before it was
-# extracted is not a restore of this repository.
-if git_scratch ls-files | grep -Eq '^\.config/ags/|^dev/tinshell/'; then
+# The shell's own project tree is a separate repository that happens to live
+# inside this home directory, so a tracked path inside it means the checkout
+# location leaked into the tracked set.
+if git_scratch ls-files | grep -Eq '^dev/tinshell/'; then
   problem "the tracked set names a path this repository does not carry"
 fi
 

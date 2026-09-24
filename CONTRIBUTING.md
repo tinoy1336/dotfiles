@@ -54,8 +54,9 @@ Consequences worth knowing before the first command:
 line re-includes it, so a new file needs a line of its own, for the narrowest path
 that carries the change. Never add `!` for a cache, an application profile, a
 credential store or a transcript directory — the hard-deny section exists for
-exactly those, and the `.local/bin/tinshell-route` case shows the shape a
-re-include takes when the file is a symlink into another tree. `/backups/` is
+exactly those. The three `.local/bin/tinshell-*` lines show the shape a symlink
+into another tree takes: named so the link is never committed at all, because the
+shell's own `setup.sh` recreates it. `/backups/` is
 hidden by the root `/*` rule and must stay that way: it holds repository history
 whose contents were deliberately removed from the tracked set, so re-including it
 publishes them in the next commit.
@@ -119,6 +120,7 @@ are the same run:
 .github/scripts/secrets-scan.sh
 .github/scripts/restore-rehearsal.sh .
 .github/scripts/installer-smoke.sh .
+.github/scripts/portability.sh
 ```
 
 `shellcheck.sh` lints every shell script the repository tracks. A finding fails
@@ -141,6 +143,12 @@ the root refusal fires. It checks the root forwarder too: `./install.sh` has to 
 executable and has to reach the installer it names, because a forwarder pointing
 at nothing fails silently everywhere else. It takes the checkout as an argument,
 and reads the repository — it never writes to it.
+
+`portability.sh` reads the tracked files for references a reader would not have:
+a home directory that is not this machine's, a checkout path the README does not
+document, or a runtime directory named by a fixed uid. Accepted references are
+recorded with their reason in `portability-allow.txt` beside it, and a record that
+no longer matches a finding is reported rather than kept.
 
 ## Adapting the repository to another machine
 

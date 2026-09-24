@@ -11,4 +11,3 @@
 .local/bin/fix-asus-kbd:SC2034
 .local/bin/prompt:SC2034
 .local/bin/sudo:SC2199
-.local/bin/tinshell-handoff-resume.sh:SC2155

@@ -157,11 +157,10 @@ home directory.
 `.gitignore` starts from `/*` — every entry at the home root is ignored — and
 re-includes the directories and files that carry intent. The mechanism is what
 keeps a machine's credentials, state and caches out of the repository:
-`~/.config/gh/`, `~/.local/share/keyrings/`, `~/.local/share/cli-keys/`,
-`~/.pi/`, `~/.local/state/`, `~/.cache/` and the other tool trees are named
-there explicitly, each on its own line, so a future re-include cannot sweep them
-back in. Adding a file means adding a `!` line for the narrowest path that
-carries it.
+`~/.config/gh/`, `~/.local/share/keyrings/`, `~/.pi/`, `~/.local/state/`,
+`~/.cache/` and the other tool trees are named there explicitly, each on its own
+line, so a future re-include cannot sweep them back in. Adding a file means
+adding a `!` line for the narrowest path that carries it.
 
 The same file is a second, functional ignore for the whole home directory:
 `core.excludesFile` points at `~/.config/git/ignore`, which is where `**/.claude/`
@@ -173,11 +172,11 @@ and friends are kept out of unrelated `git add` calls.
 | --- | --- |
 | `.config/hypr/` | Hyprland configuration (`hyprland.lua` and the conf files it loads), idle timers, lock screen, the workspace-cycle and plugin-loader scripts |
 | `.config/tinshell/` | the shell's live config, one JSON file per surface |
-| `.config/systemd/user/` | the user units: the shell, the artifact warm, the portal, polkit, swaync, wallpaper and rotation units |
+| `.config/systemd/user/` | the user units: the shell, the artifact warm, the portal, polkit, wallpaper and rotation units |
 | `.config/hosts/HOSTNAME/` | a machine's declaration — the units it enables, and the root-scoped files it installs at their absolute paths. Read by `~/.local/bin/host-apply`, which looks the directory up by this machine's hostname; the installer links that name to this directory, so the declaration stays tracked under the placeholder name |
 | `.config/gtk-3.0/`, `.config/gtk-4.0/` | GTK theming and its window-decoration assets |
 | `.config/` (single files) | terminal, launcher, file-dialog, wallpaper and portal config, `mimeapps.list` and the XDG user directories |
-| `.local/bin/` | the hand-written scripts: the wrapper, `host-apply`, the sudo and zenity shims, the AGS-facing helpers, the promptd clients |
+| `.local/bin/` | the hand-written scripts: the wrapper, `host-apply`, the sudo and zenity shims, the desktop helpers, the promptd clients |
 | shell and identity | `.zshrc`, `.zshenv`, `.bashrc`, `.gitconfig`, `.tmux.conf`, `.gtkrc-2.0` |
 | `.github/` | the CI workflows and the scripts they run |
 
@@ -260,16 +259,17 @@ order of how much they matter:
 
 ## Checks
 
-`.github/workflows/ci.yml` runs four jobs, each of which is also a script under
+`.github/workflows/ci.yml` runs five jobs, each of which is also a script under
 `.github/scripts/` so it can be run locally before a commit:
 
 ```sh
 # each job is a script, so a local run and the CI run are the same run
 export GIT_DIR="$HOME/.dotfiles.git" GIT_WORK_TREE="$HOME"
-.github/scripts/shellcheck.sh /tmp/shellcheck
-.github/scripts/secrets-scan.sh /tmp/gitleaks
+.github/scripts/shellcheck.sh
+.github/scripts/secrets-scan.sh
 .github/scripts/restore-rehearsal.sh "$HOME/.dotfiles.git"
 .github/scripts/installer-smoke.sh .
+.github/scripts/portability.sh
 ```
 
 The rehearsal is the one with real value for a reader: it proves the committed
