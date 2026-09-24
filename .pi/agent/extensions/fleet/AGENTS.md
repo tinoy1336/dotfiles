@@ -965,7 +965,21 @@ yet at activation time — the same lazy-registration pattern as the
 would have made that permanent and silently cost the foreman the reply channel for
 its own workers. So the payload filter admits any tool in `FOREMAN_TOOLS`, whether
 it was present at activation or arrived afterwards, and drops only what is outside
-that list; the drift handler removes strays only, never a legitimate late arrival.
+that list; the drift handler removes strays only, never a legitimate late arrival —
+with one deliberate exception, the loader tools (`*_enable`). A loader is re-added by
+its owning extension on every typed run, and pi renders one prompt bullet per selected
+tool at the head of the system prompt: taking a loader out of the active set makes the
+next run render something the typed path would not, because `before_agent_start` runs
+only there — and that hook either pushes the loader into the run's
+`systemPromptOptions.selectedTools` (pi-subagents) or re-adds it to the live set that pi
+then copies into `selectedTools` (pi-web-access) — while a wake runs neither and renders
+the set as it stands, one bullet fewer, recorded as a shrink in the `tools` section. A
+head that moves can re-bill the conversation behind it: a foreman session paid 86,470
+miss tokens on the request after `web_enable` first arrived mid-session, and 100,999 on
+the request after that. Loaders therefore stay selected, and activation admits registered
+ones before the first run, so the tool section cannot change under a session for any
+loader registered when that session starts; one that registers LATER still moves the head
+once. The payload filter, not the drift handler, is what keeps loaders uncallable.
 
 **The wiring is rig-covered.** `p5-wiring` drives a REAL completion event through
 the whole path — mode gate, roster lookup, usage read, B sampling, facts assembly,
