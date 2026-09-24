@@ -84,6 +84,11 @@
 !/.config/environment.d/
 !/.config/autostart/
 !/.config/git/
+# the directory is re-included for the global ignore file alone: a credential
+# file written there by git's own credential store must not become stageable
+# with it, and no other file in that directory carries intent
+/.config/git/*
+!/.config/git/ignore
 # hand-written single files
 !/.config/mimeapps.list
 !/.config/user-dirs.dirs
