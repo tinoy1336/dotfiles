@@ -1,0 +1,29 @@
+--- a/src/extension/rpc.js
++++ b/src/extension/rpc.js
+@@ -410,6 +410,11 @@
+         action: "resume",
+         ...target,
+         message: input.message.trim(),
++        // A resume envelope carries the same display label a spawn does: the fleet names the
++        // worker it revives. A key outside this list is dropped without a word, so without
++        // this the executor never sees the label and the revived row falls back to the
++        // child agent type.
++        ...(typeof input.label === "string" && input.label.trim() ? { label: input.label.trim() } : {}),
+         ...(typeof input.output === "string" ? { output: input.output.trim(), outputMode: "file-only" } : {}),
+     };
+ }
+--- a/src/runs/foreground/subagent-executor.js
++++ b/src/runs/foreground/subagent-executor.js
+@@ -1753,6 +1753,12 @@
+         agent: target.agent,
+         task: buildRevivedAsyncTask(target, effectiveFollowUp),
+         goal: effectiveFollowUp,
++        // The revived run is a new run with no status step of its own yet, and the resolved
++        // resume target carries no label (AsyncResumeTarget holds the derived sessionName,
++        // which the status row does not read), so the caller is the only holder of the name.
++        // It re-sends it on every resume, so it is forwarded here exactly as the
++        // single-spawn path forwards it, and the revived step is labelled the same way.
++        ...(typeof input.params.label === "string" && input.params.label.trim() ? { label: input.params.label.trim() } : {}),
+         agentConfig,
+         recoveryAgentConfig,
+         ctx: compactOptional({

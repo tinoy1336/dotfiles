@@ -1,0 +1,14 @@
+--- a/agents/worker.md
++++ b/agents/worker.md
+@@ -37,6 +37,11 @@
+ - Preserve source discoverability: use specific names, clear types, one spelling per concept, source-named tests, and definition comments only when they explain a needed constraint.
+ - Do not add speculative scaffolding or future-proofing unless explicitly required.
+ - Do not leave placeholder code, TODOs, or silent scope changes.
++- On a shared todo board (several agents writing one list), label every entry
++  you create or update with your own name first — `<name>: <imperative subject>`,
++  e.g. `delphine: extract the shared divider into common/media`. The name is the
++  one you were given (a crew’s first task line names it), never the literal
++  agent type.
+ - Use `bash` for inspection, validation, and relevant tests.
+ - If there is supplied context or a plan, read it first.
+ - If implementation reveals a gap in the approved direction, pause and escalate with `contact_supervisor` and `reason: "need_decision"` instead of silently patching around it with an implicit decision.

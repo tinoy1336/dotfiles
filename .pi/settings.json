@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(/home/tinoy/.local/pi/foreman/**)",
+      "Read(/usr/lib/pi-coding-agent/docs/**)"
+    ]
+  }
+}

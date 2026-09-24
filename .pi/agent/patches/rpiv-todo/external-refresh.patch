@@ -1,0 +1,76 @@
+--- a/index.ts
++++ b/index.ts
+@@ -130,6 +130,10 @@
+ 	const loadTodoOverlay = makeTodoOverlayLoader(importOverlay);
+ 	let uiCtx: ExtensionUIContext | undefined;
+ 	let lifecycleGeneration = 0;
++	// Ctx of the most recent usable session_start, kept so an external mutation can
++	// re-replay this session's branch on demand (see the
++	// `rpiv-todo:external-refresh` subscriber below).
++	let lastCtx: (Parameters<typeof sid>[0] & Parameters<typeof replayFromBranch>[0]) | undefined;
+ 
+ 	async function updateTodoOverlay(
+ 		resetCompletedDisplayState = false,
+@@ -204,6 +208,9 @@
+ 			if (!isStaleCtxError(e)) throw e;
+ 			return;
+ 		}
++		// Stash the fresh ctx: the external-refresh subscriber needs a sessionManager
++		// to re-replay from (the stale-ctx catch above returns before this).
++		lastCtx = ctx;
+ 		if (!ctx.hasUI) return;
+ 		// First UI-bearing session_start claims the foreground (the interactive
+ 		// launcher, by spawn-ordering) without eagerly loading the overlay.
+@@ -224,6 +231,52 @@
+ 		await replayAndRefresh(ctx);
+ 	});
+ 
++	// External-mutation refresh channel. Patching this INSTALLED package is the
++	// smallest reach available (2026-09-14): the crew proxy
++	// (~/.pi/agent/extensions/todo-parent.ts) records a mutation by appending a
++	// replay-compatible `todo` toolResult row to this session's BRANCH — the row
++	// `replayFromBranch` decodes — and then emits this channel. With no subscriber
++	// that append is invisible here: this extension's live state is the
++	// module-private store Map (state/store.ts), written only by replaceState/
++	// commitState from the handlers above and the tool's own execute, so the tool
++	// AND the overlay keep serving the pre-append snapshot, and the next
++	// parent-side todo write appends a row from that stale view which then wins
++	// replay's last-write-wins and drops the crew entry. An extension cannot reach
++	// that Map (per-extension jiti `moduleCache:false`), cannot invoke another
++	// extension's tool (ExtensionAPI exposes no tool invocation), and cannot emit a
++	// core lifecycle event — so the subscriber has to live here. Kept as a LOCAL
++	// patch on purpose: npm overwrites this directory, so re-apply it from
++	// ~/.pi/agent/patches/rpiv-todo after any package update.
++	pi.events.on("rpiv-todo:external-refresh", async (data: unknown) => {
++		const ctx = lastCtx;
++		if (!ctx) return;
++		let id: string;
++		try {
++			id = sid(ctx);
++		} catch (e) {
++			if (!isStaleCtxError(e)) throw e;
++			return;
++		}
++		// A request naming another session belongs to another pi process's board.
++		const requested = (data as { sid?: unknown } | undefined)?.sid;
++		if (typeof requested === "string" && requested.trim() && requested.trim() !== id) return;
++		try {
++			replaceState(id, replayFromBranch(ctx));
++		} catch (e) {
++			if (!isStaleCtxError(e)) throw e;
++			return;
++		}
++		if (id !== getActiveRenderSession()) return;
++		try {
++			await updateTodoOverlay();
++		} catch (e) {
++			// Same policy as the tool_execution_end refresh: a transient overlay
++			// failure costs one repaint, the latched namespace error must surface.
++			if (isStaleOverlayModuleError(e)) throw e;
++			console.warn(`[rpiv-todo] external refresh overlay failure (will retry): ${formatError(e)}`);
++		}
++	});
++
+ 	pi.on("session_shutdown", async (_event, ctx) => {
+ 		// Best-effort sid: disposal can race a stale ctx (like compact). An
+ 		// unknown/stale sid resolves to "" and is treated as foreground — the

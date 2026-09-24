@@ -1,0 +1,83 @@
+--- a/src/extension/schemas.js
++++ b/src/extension/schemas.js
+@@ -253,6 +253,9 @@
+ const SubagentParamProperties = {
+     agent: Type.Optional(Type.String({ description: "One-child agent or management target." })),
+     task: Type.Optional(Type.String({ description: "One-child task; requires agent." })),
++    // Display-only: status surfaces show this in place of the child agent name, so a
++    // caller that names its children (the foreman fleet) can show those names.
++    label: Type.Optional(Type.String({ description: "Optional user-facing display name; status surfaces show it in place of the child agent name." })),
+     extensionBindings: Type.Optional(Type.Unsafe({ type: "object", maxProperties: 16, additionalProperties: true, description: "Child-only bounded JSON; namespaces package.name/1." })),
+     // Management action (when present, tool operates in management mode)
+     action: Type.Optional(Type.String({ minLength: 1,
+--- a/src/runs/background/async-execution.js
++++ b/src/runs/background/async-execution.js
+@@ -1736,6 +1736,9 @@
+     }
+     let spawnResultOrPromise = {};
+     const initialStatusAt = Date.now();
++    // The child rebuilds every status step from this launch config, so the label rides the
++    // launch step too: a pre-write alone is overwritten by the child’s first status write.
++    const displayLabel = typeof params.label === "string" && params.label.trim() ? params.label.trim() : undefined;
+     const initialCompletionOwnerId = ctx.completionOwnerId ?? currentCompletionOwnerId();
+     const launchParentSessionId = ctx.parentSessionId ?? ctx.currentSessionId;
+     try {
+@@ -1748,6 +1751,7 @@
+                     ...(capabilityCeiling ? { capabilityCeiling } : {}),
+                     agent,
+                     task: taskText,
++                    ...(displayLabel ? { label: displayLabel } : {}),
+                     ...(agentConfig.runner ? { runner: agentConfig.runner } : {}),
+                     ...(machine ? { machine } : {}),
+                     ...(!externalRunner && machine && params.reads !== undefined ? { remoteReads: params.reads } : {}),
+@@ -1861,7 +1865,7 @@
+             currentStep: 0,
+             chainStepCount: 1,
+             ...(lane ? { lane } : {}),
+-            steps: [{ agent, status: "pending", ...(lane ? { lane } : {}), ...(model ? { model } : {}), ...(contextLimit !== undefined ? { contextLimit } : {}) }],
++            steps: [{ agent, status: "pending", ...(lane ? { lane } : {}), ...(model ? { model } : {}), ...(contextLimit !== undefined ? { contextLimit } : {}), ...(displayLabel ? { label: displayLabel } : {}) }],
+         }, path.join(asyncDir, "status.json"), launchParentSessionId, (proof) => emitProcessTerminalEvent(ctx, proof), (runnerProcessInstanceId) => params.activeAsyncCapacity?.markStarted(runnerProcessInstanceId), params.requestedCwd ?? runnerCwd);
+     }
+     catch (error) {
+--- a/src/tui/render.js
++++ b/src/tui/render.js
+@@ -1041,7 +1041,19 @@
+         return `${agents.slice(0, 2).join(", ")} +${agents.length - 2} more`;
+     return agents.join(", ");
+ }
++/** Display-only name for a plain single-child run. A caller may pass a spawn
++ *  `label` (the foreman fleet passes the crew name) and it lands on the single
++ *  status step; the status row then shows that name in place of the agent type.
++ *  Composite runs keep their own phase/agent naming. */
++function singleChildDisplayLabel(job) {
++    if (job.mode !== "single" || job.steps?.length !== 1)
++        return undefined;
++    return job.steps[0]?.label?.trim() || undefined;
++}
+ function widgetJobName(job) {
++    const label = singleChildDisplayLabel(job);
++    if (label)
++        return label;
+     if (job.mode === "parallel")
+         return "parallel";
+     if (job.mode === "chain")
+@@ -1061,6 +1073,9 @@
+     return status === "complete" || status === "completed";
+ }
+ function singleChildAgentName(job, step) {
++    const label = singleChildDisplayLabel(job);
++    if (label)
++        return label;
+     return job.agents?.length === 1 ? job.agents[0] : step.agent || widgetJobName(job);
+ }
+ function hasSingleChildDetailEvidence(job, step) {
+--- a/src/runs/foreground/subagent-executor.js
++++ b/src/runs/foreground/subagent-executor.js
+@@ -2922,6 +2922,7 @@
+             agent: params.agent,
+             task: shouldForkAgent(contextPolicy, params.agent) ? wrapForkTask(params.task ?? "") : (params.task ?? ""),
+             goal: params.task ?? "",
++            ...(typeof params.label === "string" && params.label.trim() ? { label: params.label.trim() } : {}),
+             agentConfig: a,
+             recoveryAgentConfig: data.recoveryAgents.find((agent) => agent.name === params.agent),
+             ctx: asyncCtx,

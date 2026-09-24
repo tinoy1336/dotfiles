@@ -1,0 +1,273 @@
+--- a/src/runs/shared/subagent-control.js
++++ b/src/runs/shared/subagent-control.js
+@@ -1,5 +1,9 @@
+ import { isToolTimeoutExempt } from "./tool-timeout.js";
+ import { createHash } from "node:crypto";
++import { existsSync } from "node:fs";
++import { createRequire } from "node:module";
++import { homedir } from "node:os";
++import { join } from "node:path";
+ import { previewDisplayText } from "../../shared/display-text.js";
+ const CONTROL_EVENT_TYPES = ["active_long_running", "needs_attention"];
+ const CONTROL_NOTIFICATION_CHANNELS = ["event", "async", "intercom"];
+@@ -134,7 +138,12 @@
+     };
+ }
+ export function shouldNotifyControlEvent(config, event) {
+-    return config.enabled && config.notifyOn.includes(event.type);
++    if (!config.enabled || !config.notifyOn.includes(event.type))
++        return false;
++    // A paused machine parks every session, so an inactivity or long-running signal
++    // describes the pause, not the run. Count it and stay silent: the pause gate's
++    // release flush reports one aggregated line per affected run instead.
++    return !suppressControlNotifyWhilePaused(event);
+ }
+ export function controlNotificationKey(event, childIntercomTarget) {
+     const childKey = childIntercomTarget ?? (event.index !== undefined ? `${event.runId}:${event.index}` : event.runId);
+@@ -231,4 +240,169 @@
+         formatControlNoticeMessage(event, childIntercomTarget),
+     ].join("\n");
+ }
++/**
++ * THE PAUSE GATE.
++ *
++ * A machine-wide pause (its owner: the shared library `<agent dir>/extensions/lib/
++ * pause-state.ts`, state file `$XDG_RUNTIME_DIR/pi-pause.json`) parks every session's
++ * agent loop, so a child running when the pause is set produces no activity at all
++ * until the pause ends. The control watchdog measures inactivity and cannot tell a
++ * parked run from a hung one: it would report `no observed activity for N s` for
++ * every run at once, and a supervising session reads one deliberate pause as several
++ * hangs.
++ *
++ * The pause is read THROUGH its owner, never re-parsed here — `readPauseState()` and
++ * `isPauseActive()` are that library's reader and test, and its `formatDuration()`
++ * renders the held time — so this file holds no second interpretation of the state
++ * file.
++ *
++ * Signals held back are counted PER RUN and summed; the caller that owns a run's
++ * reporting surface (the execution loop for a foreground run, the async runner for a
++ * detached one) takes the counts once the pause is over and emits ONE aggregated
++ * signal per run.
++ *
++ * FAIL-OPEN, like the library: an unreachable library, an unreadable state file or a
++ * malformed record all read as "not paused", so a failure here can only
++ * under-suppress (report a parked run as idle) and can never hide a real hang.
++ */
++/** The reason an aggregated signal carries, so a reader can tell it from an idle one. */
++export const PAUSE_SUPPRESSION_REASON = "paused";
++let pauseLibraryFile;
++let pauseLibraryModule;
++let pauseLibraryFailureReported = false;
++function resolvePauseLibraryFile() {
++    if (pauseLibraryFile !== undefined)
++        return pauseLibraryFile;
++    const agentDir = process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent");
++    const candidate = join(agentDir, "extensions", "lib", "pause-state.ts");
++    pauseLibraryFile = existsSync(candidate) ? candidate : null;
++    return pauseLibraryFile;
++}
++/**
++ * The pause-state library, or undefined when it cannot be reached. Loaded once per
++ * process on first use, so importing this module costs no library load.
++ */
++function pauseLibrary() {
++    if (pauseLibraryModule !== undefined)
++        return pauseLibraryModule;
++    const file = resolvePauseLibraryFile();
++    if (!file) {
++        pauseLibraryModule = null;
++        return pauseLibraryModule;
++    }
++    try {
++        const load = createRequire(import.meta.url);
++        const loaded = load(file);
++        pauseLibraryModule = typeof loaded?.readPauseState === "function" && typeof loaded?.isPauseActive === "function" ? loaded : null;
++    }
++    catch (error) {
++        pauseLibraryModule = null;
++        if (!pauseLibraryFailureReported) {
++            pauseLibraryFailureReported = true;
++            console.error(`[pi-subagents] the pause gate could not load the pause-state library at ${file}:`, error);
++        }
++    }
++    return pauseLibraryModule;
++}
++/**
++ * True while a pause is active. A pause whose deadline has passed is not active (the
++ * library's own rule), and neither is one whose state file cannot be read.
++ */
++export function pauseHoldsControlNotifications() {
++    const lib = pauseLibrary();
++    if (!lib)
++        return false;
++    try {
++        return lib.isPauseActive(lib.readPauseState()) === true;
++    }
++    catch {
++        return false;
++    }
++}
++/** Suppressed signals, keyed by run: one record per run, with the count summed. */
++const pauseSuppressedByRun = new Map();
++/** Signals already counted, so the same event object is never counted twice. */
++const pauseCountedSignals = new WeakSet();
++function pauseRunKeyOf(event) {
++    return `${event.runId ?? "unknown"}:${event.index ?? ""}`;
++}
++/**
++ * Count `event` and report whether the pause holds it back. False means the pause does
++ * not apply — no pause, an unreadable state, or a deadline that has passed — and the
++ * caller notifies as usual.
++ */
++export function suppressControlNotifyWhilePaused(event) {
++    const lib = pauseLibrary();
++    if (!lib)
++        return false;
++    let state;
++    try {
++        state = lib.readPauseState();
++        if (!lib.isPauseActive(state))
++            return false;
++    }
++    catch {
++        return false;
++    }
++    if (!pauseCountedSignals.has(event)) {
++        pauseCountedSignals.add(event);
++        const at = Number.isFinite(event.ts) ? event.ts : Date.now();
++        const key = pauseRunKeyOf(event);
++        const held = pauseSuppressedByRun.get(key);
++        if (held) {
++            held.count += 1;
++            held.lastTs = Math.max(held.lastTs, at);
++            held.lastSignal = event.type;
++        }
++        else {
++            pauseSuppressedByRun.set(key, {
++                runId: event.runId,
++                index: event.index,
++                agent: event.agent,
++                firstSignal: event.type,
++                lastSignal: event.type,
++                count: 1,
++                firstTs: at,
++                lastTs: at,
++                pauseSince: state.since,
++                pauseUntil: state.until,
++            });
++        }
++    }
++    return true;
++}
++/** How long the pause that swallowed the signals held, in milliseconds. */
++function pauseHeldMs(record, now) {
++    const since = record.pauseSince ? Date.parse(record.pauseSince) : Number.NaN;
++    if (Number.isFinite(since))
++        return Math.max(0, now - since);
++    return Math.max(0, record.lastTs - record.firstTs);
++}
++/**
++ * The suppressed signals of every run, once the pause is over. Empty while a pause is
++ * still active (there is nothing to report yet) and empty when nothing was suppressed.
++ * Taking the records clears them, so one suppression is reported once.
++ */
++export function takePauseSuppressedControlEvents(now = Date.now()) {
++    if (pauseSuppressedByRun.size === 0)
++        return [];
++    if (pauseHoldsControlNotifications())
++        return [];
++    const records = [...pauseSuppressedByRun.values()].map((record) => ({ ...record, heldMs: pauseHeldMs(record, now) }));
++    pauseSuppressedByRun.clear();
++    return records;
++}
++/** The ONE aggregated line a released pause produces for one run. */
++export function formatPauseSuppressionMessage(record) {
++    const lib = pauseLibrary();
++    const heldMs = Math.max(0, record.heldMs ?? 0);
++    const held = lib && typeof lib.formatDuration === "function"
++        ? lib.formatDuration(heldMs)
++        : `${Math.round(heldMs / 1000)}s`;
++    const run = `run ${record.runId}${record.index !== undefined ? ` step ${record.index + 1}` : ""}`;
++    const agent = record.agent ? `${record.agent} ` : "";
++    const signalWord = record.count === 1 ? "control signal" : "control signals";
++    const since = record.pauseSince ? ` (pause set ${record.pauseSince})` : "";
++    return `${agent}${run} was parked by a machine pause, not hung: ${record.count} ${signalWord} suppressed while the pause held for ${held}${since}. The run resumed on release.`;
++}
+ //# sourceMappingURL=subagent-control.js.map
+\ No newline at end of file
+--- a/src/runs/foreground/execution.js
++++ b/src/runs/foreground/execution.js
+@@ -9,7 +9,7 @@
+ import { ensureArtifactsDir, formatOutputArtifactContent, getArtifactPaths, writeArtifact, writeMetadata, } from "../../shared/artifacts.js";
+ import { createChildTranscriptWriter } from "../../shared/child-transcript.js";
+ import { DEFAULT_MAX_OUTPUT, INTERCOM_DETACH_REQUEST_EVENT, INTERCOM_DETACH_RESPONSE_EVENT, truncateOutput, } from "../../shared/types.js";
+-import { DEFAULT_CONTROL_CONFIG, buildControlEvent, claimControlNotification, deriveActivityState, shouldEmitOpenToolAttention, shouldNotifyControlEvent, } from "../shared/subagent-control.js";
++import { DEFAULT_CONTROL_CONFIG, buildControlEvent, claimControlNotification, deriveActivityState, shouldEmitOpenToolAttention, shouldNotifyControlEvent, PAUSE_SUPPRESSION_REASON, formatPauseSuppressionMessage, takePauseSuppressedControlEvents, } from "../shared/subagent-control.js";
+ import { getFinalOutput, findLatestSessionFile, detectSubagentError, hasEmptyTerminalAssistantResponse, formatEmptyTerminalAssistantResponseError, extractToolArgsPreview, extractTextFromContent, MAX_STREAMED_RECENT_TOOLS, boundStreamedRecentTools, boundStreamedRecentOutput, boundStreamedToolCalls, } from "../../shared/utils.js";
+ import { resolveSkillsWithFallback } from "../../agents/skills.js";
+ import { effectiveToolTimeoutMs, formatToolTimeoutMessage, resolveToolTimeoutMs, toolTimeoutCallKey, toolTimeoutFromEnv } from "../shared/tool-timeout.js";
+@@ -377,6 +377,22 @@
+         pendingControlEvents.push(event);
+         options.onControlEvent?.(event);
+     };
++    // The pause gate counted the signals it held back. Once the pause is over, this is
++    // the ONE line per affected run that tells a supervising session what happened.
++    const reportPauseSuppressedControlEvents = (now) => {
++        for (const record of takePauseSuppressedControlEvents(now)) {
++            emitControlEvent(buildControlEvent({
++                type: "needs_attention",
++                to: "needs_attention",
++                runId: record.runId ?? options.runId,
++                agent: record.agent ?? agent.name,
++                index: record.index ?? options.index,
++                ts: now,
++                reason: PAUSE_SUPPRESSION_REASON,
++                message: formatPauseSuppressionMessage(record),
++            }));
++        }
++    };
+     let inputUsageComplete = true;
+     let outputUsageComplete = true;
+     let cacheReadUsageComplete = true;
+@@ -787,6 +803,7 @@
+             return true;
+         };
+         const updateActivityState = (now) => {
++            reportPauseSuppressedControlEvents(now);
+             if (!controlConfig.enabled)
+                 return false;
+             const idleState = deriveActivityState({
+--- a/src/runs/background/subagent-runner.js
++++ b/src/runs/background/subagent-runner.js
+@@ -30,7 +30,7 @@
+ import { captureSingleOutputSnapshot, extractChildWrittenOutput, finalizeSingleOutput, formatSavedOutputReference, injectOutputPathSystemPrompt, injectSingleOutputInstruction, resolveSingleOutput } from "../shared/single-output.js";
+ import { runSetupCommand } from "../shared/worktree-setup-command.js";
+ import { DEFAULT_MAX_OUTPUT, SUBAGENT_LIFECYCLE_ARTIFACT_VERSION, truncateOutput, } from "../../shared/types.js";
+-import { DEFAULT_CONTROL_CONFIG, buildControlEvent, deriveActivityState, claimControlNotification, formatControlIntercomMessage, formatControlNoticeMessage, shouldEmitOpenToolAttention, } from "../shared/subagent-control.js";
++import { DEFAULT_CONTROL_CONFIG, buildControlEvent, deriveActivityState, claimControlNotification, formatControlIntercomMessage, formatControlNoticeMessage, shouldEmitOpenToolAttention, PAUSE_SUPPRESSION_REASON, formatPauseSuppressionMessage, takePauseSuppressedControlEvents, } from "../shared/subagent-control.js";
+ import { isDynamicRunnerGroup, isParallelGroup, flattenSteps, mapConcurrent, aggregateParallelOutputs, MAX_PARALLEL_CONCURRENCY, DEFAULT_GLOBAL_CONCURRENCY_LIMIT, Semaphore, } from "../shared/parallel-utils.js";
+ import { applyThinkingSuffix, projectLaunchResolvedChildExtensions, resolvePiLaunchToolPlan } from "../shared/child-tool-plan.js";
+ import { buildRunnerChildLaunch } from "./runner-child-launch.js";
+@@ -2841,6 +2841,22 @@
+         writeStatusPayload(step.activityState !== previousActivityState);
+     };
+     const updateRunnerActivityState = (now, skipExternalProbeIndex) => {
++        // A pause parks the child, so the watchdog counted nothing while it held; the
++        // counts become ONE record per affected run here, once the pause is over. The
++        // record lands in this run's own events.jsonl, so the run carries the reason it
++        // went quiet and the parent's tracker relays it to the supervising session.
++        for (const record of takePauseSuppressedControlEvents(now)) {
++            appendControlEvent(buildControlEvent(omitUndefinedProperties({
++                type: "needs_attention",
++                to: "needs_attention",
++                runId: record.runId ?? id,
++                agent: record.agent,
++                index: record.index,
++                ts: now,
++                reason: PAUSE_SUPPRESSION_REASON,
++                message: formatPauseSuppressionMessage(record),
++            })));
++        }
+         if (!controlConfig.enabled)
+             return false;
+         let changed = false;

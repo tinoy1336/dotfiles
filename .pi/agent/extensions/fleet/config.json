@@ -1,0 +1,4 @@
+{
+  "reuseWindowSeconds": 28800,
+  "_note": "operator-set reuse (prompt-cache) window, in seconds. ONE owner: no literal for this value exists in code, refusal text, tests or the injected section. It governs the fleet's reuse decision only, never the provider's cache lifetime: a resume inside the window is attempted, and whether it is actually warm is decided by the prefix being unchanged."
+}

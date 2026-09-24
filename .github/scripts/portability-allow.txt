@@ -11,3 +11,7 @@
 # the root is the live home directory.
 #
 # Detectors: .github/scripts/check-paths.mjs
+.pi/agent/canon/canon.json:1157|runtime-id|a rule quotes the runtime bundle path its own verification grep targets
+.pi/agent/canon/canon.json:1452|checkout-location|a rule shows the copy-safe command form that names a sibling checkout
+.pi/agent/canon/canon.json:1524|runtime-id|a rule names the pause-state file's live path in its example of what to read
+.pi/agent/canon/canon.json:1531|checkout-location|the path-form audit rule quotes a tilde checkout path as the shape it hunts for
