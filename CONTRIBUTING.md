@@ -133,14 +133,15 @@ added to the index but can no longer be produced from a clone. Run it with the
 repository as an argument — `"$HOME/.dotfiles.git"` here, `.` in a checkout.
 
 `installer-smoke.sh` installs into a scratch directory under `${TMPDIR:-/tmp}`
-and then checks what came out of it: the filled-in values reached the files the
-tools read — the rendered wireplumber fragment, the machine's name linked to the
-tracked declaration, the target home path — a second run wrote nothing and
-changed nothing, a pre-existing file that differs was named and left alone, and
-the root refusal fires. It checks the root forwarder too: `./install.sh` has to be
-executable and has to reach the installer it names, because a forwarder pointing
-at nothing fails silently everywhere else. It takes the checkout as an argument,
-and reads the repository — it never writes to it.
+and then checks what came out of it: the values the installer fills in reached the
+files the tools read — the home path substituted into the tracked files, the
+machine's name linked to the tracked declaration — every tracked wireplumber
+fragment is machine-independent, a second run wrote nothing and changed nothing, a
+pre-existing file that differs was named and left alone, and the root refusal
+fires. It checks the root forwarder too: `./install.sh` has to be executable and
+has to reach the installer it names, because a forwarder pointing at nothing fails
+silently everywhere else. It takes the checkout as an argument, and reads the
+repository — it never writes to it.
 
 `portability.sh` reads the tracked files for references a reader would not have:
 a home directory that is not this machine's, a checkout path the README does not
@@ -151,10 +152,11 @@ no longer matches a finding is reported rather than kept.
 ## Adapting the repository to another machine
 
 The README's adaptation list is the short version, and `./install.sh` is what
-creates the machine's own artifacts on the way in: it renders the wireplumber
-fragment from its template and links this machine's name to the host declaration.
-`--no-substitute` writes the tracked content exactly as committed and creates
-neither, for a reader who would rather do both by hand.
+creates the machine's own artifacts on the way in: it writes every tracked file
+with this home's path substituted for the one the repository carries, and links
+this machine's name to the host declaration. `--no-substitute` writes the tracked
+content exactly as committed and creates no link, for a reader who would rather do
+both by hand.
 
 In practice, past what the installer does: drop the units whose script the new
 machine does not have, and replace or delete the device rules that name hardware it
