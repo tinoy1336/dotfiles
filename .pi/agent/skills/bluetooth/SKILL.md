@@ -13,4 +13,8 @@ Load this skill whenever the trigger matches; the rules below are binding for th
 
 ## BT audio as default output
 
-AUDIO: user wants Bluetooth audio devices as the DEFAULT output — implemented via WirePlumber default-node policy `~/.config/wireplumber/wireplumber.conf.d/50-bt-default.conf`: all bluez_output.* sinks get priority.session 1200 (AirPods volume special-case preserved). On BT disconnect WirePlumber falls back to internal speakers. Do NOT stack pipewire-pulse switch-on-connect on top — one mechanism only.
+AUDIO: Bluetooth output devices are the DEFAULT sink — WirePlumber default-node policy `~/.config/wireplumber/wireplumber.conf.d/50-bt-default.conf`: all bluez_output.* sinks get priority.session 1200. On BT disconnect WirePlumber falls back to internal speakers. Do NOT stack pipewire-pulse switch-on-connect on top — one mechanism only.
+
+## Per-device volume memory
+
+Each device route's volume and mute are stored in `~/.local/state/wireplumber/default-routes` and restored when the route comes back (setting `device.restore-routes`), so a used device returns at the level it was left at — one level per device, no rule and no address anywhere. Stored route properties are applied AFTER a monitor rule writes its properties, so a rule can only reach a route with nothing stored: a rule seeds, it never overrides memory. A route with no stored volume takes `device.routes.default-sink-volume`, the cubic-scale amplitude — `0.008` is 20% as the desktop reports it, the shipped default `0.064` is 40% — set once in `~/.config/wireplumber/wireplumber.conf.d/10-default-sink-volume.conf`, where it applies to every device-route sink, wired included. Delete `~/.local/state/wireplumber/` (or run `wpctl reset`) to forget every remembered level; validating a changed fragment needs a wireplumber start, since the drop-ins are read at daemon start only.

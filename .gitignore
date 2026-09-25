@@ -63,10 +63,6 @@
 !/.config/qalculate/
 !/.config/xdg-desktop-portal/
 !/.config/wireplumber/
-# the rendered per-machine fragment: WirePlumber reads *.conf, so the tracked
-# template beside it (*.in) is inert and the machine's own value lives in the
-# rendered file, which git does not carry
-/.config/wireplumber/wireplumber.conf.d/*-local.conf
 !/.config/pi-caveman/
 !/.config/gtk-3.0/
 !/.config/gtk-4.0/

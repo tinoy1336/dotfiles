@@ -99,11 +99,9 @@ Three rules a change to that script has to keep:
 - **The placeholder set stated in the README stays complete.** A new placeholder
   is a row in that table and a step in the installer, in the same change. A value
   the machine must read at runtime belongs in a local artifact rather than in the
-  tracked file: a tracked template whose `*.in` name no tool loads, rendered into
-  the gitignored destination beside it, or a name the machine's own tool resolves
-  as a link to the tracked one. `.gitconfig` is the one tracked file the installer
-  writes verbatim, because its content is the identity the published history
-  carries.
+  tracked file: a name the machine's own tool resolves as a link to the tracked
+  one. `.gitconfig` is the one tracked file the installer writes verbatim,
+  because its content is the identity the published history carries.
 
 Adding a file under `.github/` needs no `.gitignore` change — `!/.github/`
 re-includes the directory — but a file the installer should NOT write into a home
