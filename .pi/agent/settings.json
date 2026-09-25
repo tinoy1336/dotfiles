@@ -1,6 +1,6 @@
 {
   "lastChangelogVersion": "0.87.1",
-  "theme": "dark",
+  "theme": "house",
   "defaultProvider": "deepseek",
   "defaultModel": "deepseek-flash",
   "packages": [
