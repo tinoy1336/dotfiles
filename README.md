@@ -290,19 +290,29 @@ identical in every checkout and a gate can compare it.
 | terminal | `.config/kitty/palette.house.template.ts` | `.config/kitty/palette.house.conf`, included by `kitty.conf` |
 | GTK3 apps | `.config/gtk-3.0/palette.gen.template.ts` | `.config/gtk-3.0/palette.gen.css`, imported by `gtk.css` |
 | GTK4 / libadwaita apps | `.config/gtk-4.0/palette.gen.template.ts` | `.config/gtk-4.0/palette.gen.css`, imported by `gtk.css` |
-| GTK2 apps | `.config/gtkrc.house.template.ts` | `.config/gtkrc.house`, for `~/.config/gtkrc` to include |
+| GTK2 apps | `.config/gtkrc.house.template.ts` | `.config/gtkrc.house`, included by `.gtkrc-2.0` |
 | the compositor | `.config/hypr/palette.template.ts` | `.config/hypr/palette.lua`, required by `hyprland.lua` |
 | the lock screen | `.config/hypr/hyprlock.colours.template.ts` | `.config/hypr/hyprlock.colours.conf`, sourced by `hyprlock.conf` |
-| git | `.config/git/colors.template.ts` | `.config/git/colors.inc`, for `~/.gitconfig` to include |
-| tmux | `.config/tmux/colors.template.ts` | `.config/tmux/colors.conf`, for `~/.tmux.conf` to source |
-| the login shell | `.config/zsh/house-colors.template.ts` | `.config/zsh/house-colors.sh`, for `~/.zshrc` to source |
-| KDE / Plasma | `.config/house-palette/kdeglobals.colours.template.ts` | `.config/house-palette/kdeglobals.colours.ini`, staged for a merge |
+| git | `.config/git/colors.template.ts` | `.config/git/colors.inc`, included by `.gitconfig` |
+| tmux | `.config/tmux/colors.template.ts` | `.config/tmux/colors.conf`, sourced by `.tmux.conf` |
+| the login shell | `.config/zsh/house-colors.template.ts` | `.config/zsh/house-colors.sh`, sourced by `.zshrc` |
+| KDE / Plasma | `.config/house-palette/kdeglobals.colours.template.ts` | `.config/house-palette/kdeglobals.colours.ini`, merged by hand into `kdeglobals` on a machine that installs that desktop |
 | the chat client | `.config/vesktop/settings/quickCss.template.ts` | `.config/vesktop/settings/quickCss.css`, watched by the client |
-| the music player | `.config/YouTube Music/themes/house.template.ts` | `.config/YouTube Music/themes/house.css`, for the player's theme list |
+| the music player | `.config/YouTube Music/themes/house.template.ts` | `.config/YouTube Music/themes/house.css`, named by the player's theme list, added by hand |
 | the agent | `.pi/agent/themes/house.template.ts` | `.pi/agent/themes/house.json`, selected by `.pi/agent/settings.json` |
 
 The record beside each rendered file is what lets a gate tell a current file from
 a stale one; it is committed with the file and never edited by hand.
+
+Generation is the first of three separate facts about a carrier. The second is
+whether the program reads the rendered file at all, and the third is how it comes
+to: a file whose program selects it with one line, in a loader that travels with
+the tracked set, arrives through that line and nothing else; a file whose program
+has no include mechanism, or is not installed here, is written and read by
+nothing; and a file whose only reader keeps live session state in the same file is
+named there by hand, once, deliberately. The table's last column says which case
+each carrier is in, and the section below says why the two exceptions are
+exceptions.
 
 ### Re-rendering
 
@@ -372,19 +382,29 @@ run at all: no renderer named, node missing, or a render the renderer refused. A
 
 ### What is not rendered here, and why
 
-- **`~/.config/kdeglobals`.** The KDE INI format has no include, so there is no
-  place for a rendered file to attach. `kdeglobals.colours.ini` is a fragment:
-  its sections are merged into the live file by hand, and every other section
-  there is left alone.
-- **GTK2.** No GTK2 application is installed on this machine, so
-  `~/.config/gtkrc.house` is written but remains unread until one is. Nothing
-  else is blocked by it.
-- **The loaders this repository does not render.** `~/.gitconfig`, `~/.tmux.conf`,
-  `~/.zshrc` and `~/.config/gtkrc` each need one line — `[include] path`,
-  `source-file`, `source`, `include` — to read the file rendered for it, and the
-  player's `config.json` needs the generated stylesheet added to its theme list.
-  Those five files are live state rather than templates: each line is added once,
-  by hand, in the file that owns it.
+The exceptions below are the carriers whose program cannot select a rendered file
+on its own. Every other carrier already has its line: `~/.gitconfig` includes
+`.config/git/colors.inc`, `~/.tmux.conf` sources `.config/tmux/colors.conf`,
+`~/.zshrc` sources `.config/zsh/house-colors.sh` and `.gtkrc-2.0` includes
+`.config/gtkrc.house`. Those four are tracked home-root files, so the line a
+machine writes once arrives through a restore as well.
+
+- **The desktop environment.** The KDE INI format has no include, so there is no
+  place for a rendered file to attach, and no application of that environment is
+  installed on this machine — nothing here reads the merged file either.
+  `kdeglobals.colours.ini` is therefore a fragment: a machine that installs that
+  desktop merges its sections into `~/.config/kdeglobals` by hand, leaving every
+  other section there alone, and re-merges it whenever the palette moves.
+- **The music player.** The generated stylesheet is written and gated, but the
+  file that would name it — `.config/YouTube Music/config.json` — is the running
+  player's live session state, so adding `.config/YouTube Music/themes/house.css`
+  to its theme list is a step taken with the player stopped, not a line this
+  repository can commit. That file is not tracked, so a rebuild repeats it.
+- **GTK2.** No GTK2 application is installed on this machine, so `.gtkrc-2.0` is
+  read by nothing yet. The include line is in that tracked file, so the first
+  GTK2 application installed here picks the palette up with no edit; the file the
+  desktop's own toolkit page used to write, `~/.config/gtkrc`, is not read by GTK2
+  at all and is left as it was.
 - **Values with no token.** A colour the palette does not name is not invented
   here. A rendered file that needs one fails loudly instead, naming the token it
   could not find.
