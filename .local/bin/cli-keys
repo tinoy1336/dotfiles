@@ -533,7 +533,7 @@ watch() {
   # already up has no transition left to observe.
   ensure 1
   while :; do
-    coproc MONITOR { nmcli monitor 2>/dev/null; }
+    coproc MONITOR { exec nmcli monitor 2>/dev/null; }
     while IFS= read -r -t "$WATCH_CYCLE" line <&"${MONITOR[0]}"; do
       case "$line" in
         # nmcli monitor's own transition lines: "Connectivity is now 'full'" and
