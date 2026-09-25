@@ -1,5 +1,10 @@
 local mod = "SUPER"
 
+-- The compositor's own colours come from the palette table rendered beside this
+-- config, so no colour is written here: a palette change reaches the compositor
+-- the next time it reads its configuration.
+local palette = require("palette")
+
 local terminal = "kitty --single-instance"
 -- `--class` sets the Wayland app_id, so the kitty-float rule matches only the
 -- Shift-launched process.
@@ -37,8 +42,8 @@ hl.config({
         gaps_in = 4,
         border_size = 1,
         col = {
-            active_border   = "rgba(ccccccff)",
-            inactive_border = "rgba(00000000)",
+            active_border   = palette.border_active,
+            inactive_border = palette.border_inactive,
         },
     },
     decoration = {

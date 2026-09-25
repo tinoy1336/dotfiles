@@ -1,4 +1,5 @@
 @import 'colors.css';
+@import 'palette.gen.css';
 
 /*
  * AGS-palette overrides for GTK4 / libadwaita apps.
@@ -6,46 +7,13 @@
  * GTK4 has no adw-gtk3 equivalent — libadwaita ships its own stylesheet and
  * exposes *named colors* as the sanctioned customization seam. Overriding them
  * here re-tints every libadwaita surface (including AdwMessageDialog /
- * GtkAlertDialog, the GTK4 analogue of the native popups) to the AGS palette
- * from the shell tree's `common/shell/theme.css`.
+ * GtkAlertDialog, the GTK4 analogue of the native popups).
+ *
+ * The names come from palette.gen.css, rendered from the house palette; this
+ * file carries no colour of its own.
  *
  * Note: AGS's own apps do NOT read this file — they load their own CSS.
  */
-
-/* libadwaita named colors ------------------------------------------------- */
-
-@define-color window_bg_color #1b1d22;
-@define-color window_fg_color #e6e6e6;
-
-@define-color view_bg_color #16181c;
-@define-color view_fg_color #e6e6e6;
-
-@define-color headerbar_bg_color #1b1d22;
-@define-color headerbar_fg_color #e6e6e6;
-@define-color headerbar_border_color rgba(255, 255, 255, 0.08);
-@define-color headerbar_backdrop_color @window_bg_color;
-
-@define-color popover_bg_color #23262c;
-@define-color popover_fg_color #e6e6e6;
-
-@define-color dialog_bg_color #1b1d22;
-@define-color dialog_fg_color #e6e6e6;
-
-@define-color card_bg_color rgba(255, 255, 255, 0.05);
-@define-color card_fg_color #e6e6e6;
-
-@define-color accent_bg_color #8ab5f7;
-@define-color accent_fg_color #14171c;
-@define-color accent_color #8ab5f7;
-
-@define-color destructive_bg_color #ff6b6b;
-@define-color destructive_fg_color #14171c;
-@define-color destructive_color #ff6b6b;
-
-@define-color warning_bg_color #f0b35a;
-@define-color warning_color #f0b35a;
-
-@define-color borders rgba(255, 255, 255, 0.10);
 
 /* Dialog surfaces --------------------------------------------------------- */
 
@@ -88,7 +56,7 @@ window.dialog .dialog-action-area button {
 
 window.messagedialog .response-area button:hover,
 window.dialog .dialog-action-area button:hover {
-  background-color: rgba(255, 255, 255, 0.08);
+  background-color: @ags_hover;
 }
 
 window.messagedialog entry,
