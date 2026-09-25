@@ -12,3 +12,6 @@ gtk-cursor-theme-name="breeze_cursors"
 gtk-sound-theme-name="ocean"
 gtk-icon-theme-name="breeze-dark"
 
+# Colours, rendered from the house palette.
+include "/home/tinoy/.config/gtkrc.house"
+
