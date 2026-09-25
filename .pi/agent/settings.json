@@ -34,7 +34,8 @@
     "npm:@tinoy/pi-todo-parent",
     "npm:@tinoy/pi-fleet",
     "npm:@tinoy/pi-io-guard",
-    "npm:@tinoy/pi-deepseek-cost"
+    "npm:@tinoy/pi-deepseek-cost",
+    "npm:@tinoy/pi-sudo-approve"
   ],
   "hideThinkingBlock": false,
   "showCacheMissNotices": true,
@@ -117,7 +118,7 @@
           "~/.pi/agent/npm/node_modules/pi-web-access/index.ts",
           "~/.pi/agent/npm/node_modules/@tinoy/pi-todo-parent/index.ts",
           "~/.pi/agent/npm/node_modules/@tinoy/pi-drift-anchor/index.ts",
-          "~/.pi/agent/extensions/sudo-approve.ts",
+          "~/.pi/agent/npm/node_modules/@tinoy/pi-sudo-approve/index.ts",
           "~/.pi/agent/npm/node_modules/@tinoy/pi-io-guard/index.ts",
           "~/.pi/agent/npm/node_modules/@tinoy/pi-build/index.ts",
           "~/.pi/agent/npm/node_modules/@tinoy/pi-canon/index.ts"

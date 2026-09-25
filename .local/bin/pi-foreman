@@ -69,12 +69,15 @@ PROG=${0##*/}
 PI_BIN=/usr/bin/pi
 AGENT_DIR=${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}
 # The fleet extension is registered by the @tinoy/pi-fleet package, whose manifest names
-# both of its entries (`fleet` and `io-guard`). Resolve the fleet one from that manifest
-# for the same reason as pi-subagents below: a literal path under <agent dir>/extensions
-# names a source file the package may stop shipping, and this launch then dies for nothing
-# while the local extensions directory still holds the data the package reads (fleet/config.json).
+# its own entry (`./index.ts`; io-guard became a package of its own, @tinoy/pi-io-guard).
+# Resolve it from that manifest for the same reason as pi-subagents below: a literal path
+# under <agent dir>/extensions names a source file the package may stop shipping, and this
+# launch then dies for nothing while the local extensions directory still holds the data
+# the package reads (fleet/config.json).
 FLEET_PKG=$AGENT_DIR/npm/node_modules/@tinoy/pi-fleet
-FLEET_ENTRY=$(jq -r '[.pi.extensions[] | select(endswith("/fleet/index.ts"))] | first // empty' "$FLEET_PKG/package.json" 2>/dev/null || true)
+# a manifest that still names two entries selects the fleet one; a single-entry manifest
+# (anything from 0.2.4 on) has only its own entry to give
+FLEET_ENTRY=$(jq -r '.pi.extensions as $e | ([$e[] | select(endswith("/fleet/index.ts"))] | first) // ($e[0] // empty)' "$FLEET_PKG/package.json" 2>/dev/null || true)
 FLEET=$FLEET_PKG/$FLEET_ENTRY
 # The crew tool is registered by the pi-subagents package, not by the fleet extension.
 # pi installs user-scope npm packages under <agent dir>/npm, and the entry file comes from
