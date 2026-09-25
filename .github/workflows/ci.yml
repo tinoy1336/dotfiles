@@ -1,4 +1,4 @@
-# Five checks over the tracked set. Each job runs a script from .github/scripts,
+# Six checks over the tracked set. Each job runs a script from .github/scripts,
 # so the same run is available locally before a commit.
 #
 #   shellcheck          every tracked shell script, with the findings the tree
@@ -15,6 +15,10 @@
 #                       a home the reader does not have, or a checkout path the
 #                       README does not document. Prose is read here — the other
 #                       jobs select files by extension and never open a README
+#   palette             every file rendered from the house palette: each template
+#                       is re-rendered and compared, and the run fails when a
+#                       committed file or its record is stale, or when the palette
+#                       is no longer the revision this repository rendered against
 #
 # The tool versions are pinned and their tarballs are checked against a digest:
 # the local run and the CI run then lint the same scripts with the same shellcheck.
@@ -90,3 +94,25 @@ jobs:
       - uses: actions/checkout@v7
       - name: Path references resolve for a reader
         run: .github/scripts/portability.sh
+
+  palette:
+    name: palette
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # The renderer belongs to the palette repository, which is public, and is not
+      # vendored here — the rendered files and their templates are all that travel.
+      # Its default branch is fetched rather than a pinned commit, because the
+      # gate's own --expect-palette is what reports that the palette moved: a clone
+      # held at a fixed revision would hide exactly the change this job exists for.
+      - uses: actions/checkout@v7
+        with:
+          repository: tinoy1336/house-palette
+          path: .palette-renderer
+      # Node runs the renderer's sources by stripping the types, so the version is
+      # pinned rather than left to the runner image.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Re-render every palette file and compare it
+        run: .github/scripts/palette-check.sh .palette-renderer/bin/render

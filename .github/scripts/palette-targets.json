@@ -1,0 +1,73 @@
+{
+  "palette": {
+    "revision": "04031d0",
+    "sha256": "15322952c371949710ae4648cc4e1feb64c5ff750451bc8f85113e1aa3b2127a"
+  },
+  "targets": [
+    {
+      "template": ".config/kitty/palette.house.template.ts",
+      "output": ".config/kitty/palette.house.conf",
+      "record": ".config/kitty/palette.house.conf.record.json"
+    },
+    {
+      "template": ".config/gtk-3.0/palette.gen.template.ts",
+      "output": ".config/gtk-3.0/palette.gen.css",
+      "record": ".config/gtk-3.0/palette.gen.css.record.json"
+    },
+    {
+      "template": ".config/gtk-4.0/palette.gen.template.ts",
+      "output": ".config/gtk-4.0/palette.gen.css",
+      "record": ".config/gtk-4.0/palette.gen.css.record.json"
+    },
+    {
+      "template": ".config/gtkrc.house.template.ts",
+      "output": ".config/gtkrc.house",
+      "record": ".config/gtkrc.house.record.json"
+    },
+    {
+      "template": ".config/hypr/palette.template.ts",
+      "output": ".config/hypr/palette.lua",
+      "record": ".config/hypr/palette.lua.record.json"
+    },
+    {
+      "template": ".config/hypr/hyprlock.colours.template.ts",
+      "output": ".config/hypr/hyprlock.colours.conf",
+      "record": ".config/hypr/hyprlock.colours.conf.record.json"
+    },
+    {
+      "template": ".config/git/colors.template.ts",
+      "output": ".config/git/colors.inc",
+      "record": ".config/git/colors.inc.record.json"
+    },
+    {
+      "template": ".config/tmux/colors.template.ts",
+      "output": ".config/tmux/colors.conf",
+      "record": ".config/tmux/colors.conf.record.json"
+    },
+    {
+      "template": ".config/zsh/house-colors.template.ts",
+      "output": ".config/zsh/house-colors.sh",
+      "record": ".config/zsh/house-colors.sh.record.json"
+    },
+    {
+      "template": ".config/house-palette/kdeglobals.colours.template.ts",
+      "output": ".config/house-palette/kdeglobals.colours.ini",
+      "record": ".config/house-palette/kdeglobals.colours.ini.record.json"
+    },
+    {
+      "template": ".config/vesktop/settings/quickCss.template.ts",
+      "output": ".config/vesktop/settings/quickCss.css",
+      "record": ".config/vesktop/settings/quickCss.css.record.json"
+    },
+    {
+      "template": ".config/YouTube Music/themes/house.template.ts",
+      "output": ".config/YouTube Music/themes/house.css",
+      "record": ".config/YouTube Music/themes/house.css.record.json"
+    },
+    {
+      "template": ".pi/agent/themes/house.template.ts",
+      "output": ".pi/agent/themes/house.json",
+      "record": ".pi/agent/themes/house.json.record.json"
+    }
+  ]
+}
