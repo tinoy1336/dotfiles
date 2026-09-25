@@ -13,3 +13,7 @@
 [credential "https://gist.github.com"]
 	helper = 
 	helper = !/usr/bin/gh auth git-credential
+
+# Colours, rendered from the house palette.
+[include]
+	path = ~/.config/git/colors.inc

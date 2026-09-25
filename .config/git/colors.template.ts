@@ -4,7 +4,9 @@
  * git reads a secondary config through `include.path`, so this file is a config
  * fragment holding `[color "..."]` sections and nothing else. Every value is a
  * token's colour: git's colour names are its own vocabulary, and a house token is
- * chosen for the job the name does.
+ * chosen for the job the name does. Every value is written quoted, because git
+ * reads an unquoted value that begins with `#` as a comment and takes the colour
+ * to be empty — quoting is what carries a hex colour into git's parser.
  */
 
 type Token = { hex?: string; alpha?: number; solid?: string }
@@ -94,7 +96,7 @@ export default {
     const lines = [header(context)]
     SECTIONS.forEach(([section, keys], index) => {
       lines.push(`[color "${section}"]`)
-      for (const [key, token] of keys) lines.push(`\t${key} = ${solid(context, token)}`)
+      for (const [key, token] of keys) lines.push(`\t${key} = "${solid(context, token)}"`)
       if (index < SECTIONS.length - 1) lines.push("")
     })
     return `${lines.join("\n")}\n`

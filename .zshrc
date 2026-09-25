@@ -14,3 +14,6 @@ export PATH="$PATH:/snap/bin"
 # kitty single-instance + kittens
 alias kitty="kitty --single-instance"
 alias ssh="kitten ssh"
+
+# Colours, rendered from the house palette.
+source ~/.config/zsh/house-colors.sh
