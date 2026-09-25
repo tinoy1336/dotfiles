@@ -169,12 +169,15 @@ marker_count() { # file pattern -> fixed-string match count
 }
 
 check_patches() {
-	local name pkg patchfile spec item file pattern want got state ok saved_ifs
+	local name pkg spec item file pattern want got state ok saved_ifs
 	if [ ! -f "$MANIFEST" ]; then
 		fail PATCHES "manifest absent: $MANIFEST"
 		return
 	fi
-	while IFS=$'\t' read -r name pkg patchfile spec; do
+	# The manifest record is name, package, patch file, marker spec: the patch
+	# file is consumed here so spec reads the fourth column, and the applier is
+	# the one that validates the file it names.
+	while IFS=$'\t' read -r name pkg _ spec; do
 		case "${name:-}" in ''|'#'*) continue ;; esac
 		state=""
 		ok=1
