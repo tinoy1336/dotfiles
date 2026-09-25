@@ -271,9 +271,127 @@ order of how much they matter:
    `tinshell-route` do nothing without that project installed; its own units and
    its promptd clients reach this home only through its `setup.sh`.
 
+## The files rendered from the house palette
+
+Every colour and opacity this home configures comes from one source: the house
+palette repository (`https://github.com/tinoy1336/house-palette`). That repository
+holds the tokens (`palette.json`) and a renderer (`bin/render`); it holds no
+template for any program and knows no destination. Each program's values are
+therefore rendered here, by a template that lives beside the file it produces,
+and this repository gates both.
+
+A carrier is three files: the template (`<name>.template.ts`), the rendered file,
+and the renderer's record of it (`<name>.record.json`). The record names the
+digests of the template, the palette and the output and no path at all, so it is
+identical in every checkout and a gate can compare it.
+
+| Carrier | Template | Rendered file, and what reads it |
+| --- | --- | --- |
+| terminal | `.config/kitty/palette.house.template.ts` | `.config/kitty/palette.house.conf`, included by `kitty.conf` |
+| GTK3 apps | `.config/gtk-3.0/palette.gen.template.ts` | `.config/gtk-3.0/palette.gen.css`, imported by `gtk.css` |
+| GTK4 / libadwaita apps | `.config/gtk-4.0/palette.gen.template.ts` | `.config/gtk-4.0/palette.gen.css`, imported by `gtk.css` |
+| GTK2 apps | `.config/gtkrc.house.template.ts` | `.config/gtkrc.house`, for `~/.config/gtkrc` to include |
+| the compositor | `.config/hypr/palette.template.ts` | `.config/hypr/palette.lua`, required by `hyprland.lua` |
+| the lock screen | `.config/hypr/hyprlock.colours.template.ts` | `.config/hypr/hyprlock.colours.conf`, sourced by `hyprlock.conf` |
+| git | `.config/git/colors.template.ts` | `.config/git/colors.inc`, for `~/.gitconfig` to include |
+| tmux | `.config/tmux/colors.template.ts` | `.config/tmux/colors.conf`, for `~/.tmux.conf` to source |
+| the login shell | `.config/zsh/house-colors.template.ts` | `.config/zsh/house-colors.sh`, for `~/.zshrc` to source |
+| KDE / Plasma | `.config/house-palette/kdeglobals.colours.template.ts` | `.config/house-palette/kdeglobals.colours.ini`, staged for a merge |
+| the chat client | `.config/vesktop/settings/quickCss.template.ts` | `.config/vesktop/settings/quickCss.css`, watched by the client |
+| the music player | `.config/YouTube Music/themes/house.template.ts` | `.config/YouTube Music/themes/house.css`, for the player's theme list |
+| the agent | `.pi/agent/themes/house.template.ts` | `.pi/agent/themes/house.json`, selected by `.pi/agent/settings.json` |
+
+The record beside each rendered file is what lets a gate tell a current file from
+a stale one; it is committed with the file and never edited by hand.
+
+### Re-rendering
+
+The renderer is a program from the palette repository, so it is named on the
+command line rather than vendored here:
+
+```sh
+# once, to have the renderer locally
+git clone https://github.com/tinoy1336/house-palette
+
+# compare every carrier against a fresh render (the CI job runs exactly this)
+.github/scripts/palette-check.sh <path-to-house-palette>/bin/render
+
+# re-render every carrier after a template or palette change
+.github/scripts/palette-check.sh <path-to-house-palette>/bin/render --render
+```
+
+A single carrier takes the same two commands with the renderer's own arguments,
+which is what the header of every rendered file repeats:
+
+```sh
+bin/render --template .config/tmux/colors.template.ts \
+  --out .config/tmux/colors.conf --record .config/tmux/colors.conf.record.json
+```
+
+Edit a template, re-render, read the diff, then commit the template, the rendered
+file and the record together. A rendered file is never edited by hand: its first
+line says it was generated, and the gate overwrites or reports anything that
+disagrees with its template. One carrier cannot carry that line — pi reads its
+theme as JSON, which has no comment syntax — so for `.pi/agent/themes/house.json`
+the record beside it is the only record of where it comes from.
+
+### The pinned palette revision
+
+`.github/scripts/palette-targets.json` lists the carriers and pins the palette
+this home rendered against by its commit and its content digest. Every run passes
+both to the renderer, so a palette that moved is reported before anything is
+compared:
+
+```text
+palette-mismatch …/palette.json: expected 15322952…, found 4c1f0b31…
+```
+
+That is the point of the pin: taking an upstream palette change is a deliberate
+act — re-render, read the diff of every carrier, commit the files and the new
+revision together — rather than something that happens silently under a reader.
+A carrier added later takes its own entry in that file and its own narrow `!`
+lines in `.gitignore`, both in the change that adds it.
+
+### What a gate failure says
+
+`.github/scripts/palette-check.sh` prints the renderer's own one-line reasons and
+ends with a count:
+
+```sh
+.github/scripts/palette-check.sh <path-to-house-palette>/bin/render
+stale /home/tinoy/.config/tmux/colors.conf
+palette: 13 target(s) checked, 1 stale, 0 could not run
+```
+
+The exit codes are the contract a job relies on: `0` every file and record is
+current, `1` drift — a rendered file was edited, a template changed without a
+re-render, a record is missing or was written against a different template or
+palette, or the palette is not the pinned digest — and `2` the check could not
+run at all: no renderer named, node missing, or a render the renderer refused. A
+`2` is never drift, and a gate that reads it as a clean tree is broken.
+
+### What is not rendered here, and why
+
+- **`~/.config/kdeglobals`.** The KDE INI format has no include, so there is no
+  place for a rendered file to attach. `kdeglobals.colours.ini` is a fragment:
+  its sections are merged into the live file by hand, and every other section
+  there is left alone.
+- **GTK2.** No GTK2 application is installed on this machine, so
+  `~/.config/gtkrc.house` is written but remains unread until one is. Nothing
+  else is blocked by it.
+- **The loaders this repository does not render.** `~/.gitconfig`, `~/.tmux.conf`,
+  `~/.zshrc` and `~/.config/gtkrc` each need one line — `[include] path`,
+  `source-file`, `source`, `include` — to read the file rendered for it, and the
+  player's `config.json` needs the generated stylesheet added to its theme list.
+  Those five files are live state rather than templates: each line is added once,
+  by hand, in the file that owns it.
+- **Values with no token.** A colour the palette does not name is not invented
+  here. A rendered file that needs one fails loudly instead, naming the token it
+  could not find.
+
 ## Checks
 
-`.github/workflows/ci.yml` runs five jobs, each of which is also a script under
+`.github/workflows/ci.yml` runs six jobs, each of which is also a script under
 `.github/scripts/` so it can be run locally before a commit:
 
 ```sh
@@ -284,6 +402,7 @@ export GIT_DIR="$HOME/.dotfiles.git" GIT_WORK_TREE="$HOME"
 .github/scripts/restore-rehearsal.sh "$HOME/.dotfiles.git"
 .github/scripts/installer-smoke.sh .
 .github/scripts/portability.sh
+.github/scripts/palette-check.sh <path-to-house-palette>/bin/render
 ```
 
 The rehearsal is the one with real value for a reader: it proves the committed
@@ -300,6 +419,12 @@ second run writes nothing and changes nothing, a file that already exists and
 differs is named and left alone, and running as root is refused. It also holds
 the repository's root entry point to what it claims to be: `./install.sh` has to
 exist, be executable, and reach the installer it names.
+
+The palette job is the one that keeps the rendered files honest: it re-renders
+every carrier listed in `.github/scripts/palette-targets.json` and compares the
+result with the file and the record committed here, against the palette revision
+pinned in the same file. It fetches the palette repository's renderer, because
+that program belongs to that repository and is not vendored here.
 
 ## Licence
 
