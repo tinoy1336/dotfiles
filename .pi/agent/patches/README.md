@@ -119,15 +119,14 @@ entry (or none of them) from their pre-patch copies, then run the applier once t
 
 Two systemd user units, in `~/.config/systemd/user/`:
 
-- `pi-patch-apply.path` — watches `~/.pi/agent/npm/node_modules`, its `@juicesharp`
-  subdirectory and the package directories whose patches it manages (`PathModified`):
-  `@juicesharp/rpiv-todo` and `pi-subagents` today. npm rewriting a package changes those
-  directory mtimes, which fires the service. A patched package whose directory is absent from
-  that list is restored only by a hand run of `apply-patches.sh`:
-  `@tinoy/pi-deepseek-cost` and, until the changed section is published, `@tinoy/pi-fleet`
-  are in that position — their manifest entries and patch directories exist, their watch
-  entries do not, so a rewrite of either lands unpatched until the directory is added to the
-  unit and the unit is reloaded.
+- `pi-patch-apply.path` — watches `~/.pi/agent/npm/node_modules`, each scope directory
+  whose packages carry a patch, and every one of those package directories
+  (`PathModified`): `@juicesharp`, `@juicesharp/rpiv-todo`, `pi-subagents`, `@tinoy`,
+  `@tinoy/pi-deepseek-cost` and `@tinoy/pi-fleet`. npm rewriting a package changes those
+  directory mtimes, which fires the service. The list has to name every package directory
+  in `managed-patches.conf`: a patched package whose directory is not watched is rewritten
+  with nothing to fire the service, and is restored only by a hand run of
+  `apply-patches.sh`.
 - `pi-patch-apply.service` — `Type=oneshot`, `ExecStart=apply-patches.sh`,
   `WantedBy=default.target` so it also runs at login/boot, `TimeoutStartSec=240` so a run
   has room for the install-in-flight retries and the doctor while still being unable to

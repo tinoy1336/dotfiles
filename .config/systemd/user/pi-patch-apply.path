@@ -7,10 +7,16 @@ Documentation=file:/home/tinoy/.pi/agent/patches/README.md
 # marker is present again.
 
 [Path]
+# One entry per package directory `managed-patches.conf` names, plus the scope
+# directories that hold them: a package directory missing from this list is
+# rewritten by npm with nothing to fire the service, and lands unpatched.
 PathModified=/home/tinoy/.pi/agent/npm/node_modules
 PathModified=/home/tinoy/.pi/agent/npm/node_modules/@juicesharp
 PathModified=/home/tinoy/.pi/agent/npm/node_modules/@juicesharp/rpiv-todo
 PathModified=/home/tinoy/.pi/agent/npm/node_modules/pi-subagents
+PathModified=/home/tinoy/.pi/agent/npm/node_modules/@tinoy
+PathModified=/home/tinoy/.pi/agent/npm/node_modules/@tinoy/pi-deepseek-cost
+PathModified=/home/tinoy/.pi/agent/npm/node_modules/@tinoy/pi-fleet
 Unit=pi-patch-apply.service
 
 [Install]
