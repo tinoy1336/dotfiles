@@ -158,6 +158,7 @@ $(printf '%s' "$detail" | tail -n 3)"
 apply_entry() { # name package-dir patch-file marker-spec
 	local name="$1" pkg="$2" patchfile="$3" spec="$4"
 	local entry_dir version file dryout dryrc applyout applyrc tmp attempt
+	local targets hashes staged_ok hash
 
 	if [ ! -d "$pkg" ]; then
 		record_failure "$name" "package directory absent: $pkg" ""
@@ -175,9 +176,10 @@ apply_entry() { # name package-dir patch-file marker-spec
 	entry_dir="$(dirname "$patchfile")"
 	version="$(package_version "$pkg")"
 	[ -n "$version" ] || version="unknown"
+	targets="$(patch_targets "$patchfile")"
 
-	# 1. validate against the installed tree; a failed dry run stops here.
-	# --fuzz=0 requires an exact context match: a target whose surrounding code
+	# 1. validate against the installed tree, and stage copies of exactly the bytes that
+	# passed. --fuzz=0 requires an exact context match: a target whose surrounding code
 	# moved is a failure to report, not something to paper over with a fuzzy apply.
 	# A failure while the package was written moments ago is an install still in
 	# flight -- the trigger fires on the first write of a rewrite and npm has not
@@ -187,30 +189,81 @@ apply_entry() { # name package-dir patch-file marker-spec
 	while :; do
 		dryout="$(patch -p1 --batch --fuzz=0 --dry-run -d "$pkg" < "$patchfile" 2>&1)"
 		dryrc=$?
-		[ "$dryrc" -eq 0 ] && break
-		if [ "$attempt" -ge "$TRANSIENT_ATTEMPTS" ] || ! package_recently_written "$pkg"; then
-			record_failure "$name" "dry run failed against $pkg (exit $dryrc)" "$dryout"
-			return
+		if [ "$dryrc" -ne 0 ]; then
+			if [ "$attempt" -ge "$TRANSIENT_ATTEMPTS" ] || ! package_recently_written "$pkg"; then
+				record_failure "$name" "dry run failed against $pkg (exit $dryrc)" "$dryout"
+				return
+			fi
+			log "retry $name: package written within ${RECENT_WINDOW}s, install still in flight (attempt $attempt)"
+			attempt=$((attempt + 1))
+			sleep "$TRANSIENT_WAIT"
+			continue
 		fi
-		log "retry $name: package written within ${RECENT_WINDOW}s, install still in flight (attempt $attempt)"
-		attempt=$((attempt + 1))
-		sleep "$TRANSIENT_WAIT"
-	done
 
-	# 2. apply to a staging copy of every target file
-	STAGE="$(mktemp -d "${TMPDIR:-/tmp}/pi-patch-apply.XXXXXX")" || {
-		record_failure "$name" "cannot create staging directory" ""
-		return
-	}
-	while IFS= read -r file; do
-		[ -n "$file" ] || continue
-		if [ ! -f "$pkg/$file" ]; then
-			record_failure "$name" "patch target absent from $pkg: $file" ""
+		# The apply state is read again once the dry run has settled, because the read that
+		# started this entry can land while npm is still unpacking the package: a tree that
+		# now carries the markers is applied, and the run is a no-op.
+		if markers_ok "$pkg" "$spec"; then
+			say "ok      $name: already applied, no-op once the tree settled ($(marker_state "$pkg" "$spec"))"
 			return
 		fi
-		mkdir -p "$STAGE/$(dirname "$file")"
-		cp -p "$pkg/$file" "$STAGE/$file"
-	done <<< "$(patch_targets "$patchfile")"
+		# patch reports the same state from its own side, by reversing against an
+		# already-patched file and exiting 0. Markers absent and a reversal together mean the
+		# tree matches neither direction, so the entry is reported instead of being applied
+		# backwards -- retried first while the package is still being written.
+		if printf '%s' "$dryout" | grep -qF 'Reversed (or previously applied) patch detected'; then
+			if [ "$attempt" -lt "$TRANSIENT_ATTEMPTS" ] && package_recently_written "$pkg"; then
+				log "retry $name: the patch reversed against a tree written moments ago (attempt $attempt)"
+				attempt=$((attempt + 1))
+				sleep "$TRANSIENT_WAIT"
+				continue
+			fi
+			record_failure "$name" "the patch reverses against $pkg and its markers do not read applied" "$dryout"
+			return
+		fi
+
+		# 2. stage a copy of every target file, of exactly the bytes the dry run passed
+		# against. A copy that differs means the package was rewritten mid-entry, and the
+		# patch would land on a base it was never checked against, so the entry is read again.
+		STAGE="$(mktemp -d "${TMPDIR:-/tmp}/pi-patch-apply.XXXXXX")" || {
+			record_failure "$name" "cannot create staging directory" ""
+			return
+		}
+		hashes="$(mktemp "${TMPDIR:-/tmp}/pi-patch-hashes.XXXXXX")" || {
+			record_failure "$name" "cannot create the target hash file" ""
+			return
+		}
+		staged_ok=1
+		while IFS= read -r file; do
+			[ -n "$file" ] || continue
+			if [ ! -f "$pkg/$file" ]; then
+				rm -f "$hashes"
+				record_failure "$name" "patch target absent from $pkg: $file" ""
+				return
+			fi
+			( cd "$pkg" && sha256sum "$file" ) >> "$hashes"
+			mkdir -p "$STAGE/$(dirname "$file")"
+			cp -p "$pkg/$file" "$STAGE/$file"
+		done <<< "$targets"
+		while read -r hash file; do
+			[ -n "$file" ] || continue
+			[ "$hash" = "$(sha256sum "$STAGE/$file" | cut -d' ' -f1)" ] || staged_ok=0
+		done < "$hashes"
+		rm -f "$hashes"
+		if [ "$staged_ok" -eq 0 ]; then
+			if [ "$attempt" -ge "$TRANSIENT_ATTEMPTS" ]; then
+				record_failure "$name" "the package was rewritten while the entry was being staged; nothing was installed" "$dryout"
+				return
+			fi
+			log "retry $name: a target changed between the dry run and its staging copy (attempt $attempt)"
+			attempt=$((attempt + 1))
+			rm -rf "$STAGE"
+			STAGE=""
+			sleep "$TRANSIENT_WAIT"
+			continue
+		fi
+		break
+	done
 
 	applyout="$(patch -p1 --batch --fuzz=0 -d "$STAGE" < "$patchfile" 2>&1)"
 	applyrc=$?

@@ -14,9 +14,6 @@ PathModified=/home/tinoy/.pi/agent/npm/node_modules
 PathModified=/home/tinoy/.pi/agent/npm/node_modules/@juicesharp
 PathModified=/home/tinoy/.pi/agent/npm/node_modules/@juicesharp/rpiv-todo
 PathModified=/home/tinoy/.pi/agent/npm/node_modules/pi-subagents
-PathModified=/home/tinoy/.pi/agent/npm/node_modules/@tinoy
-PathModified=/home/tinoy/.pi/agent/npm/node_modules/@tinoy/pi-deepseek-cost
-PathModified=/home/tinoy/.pi/agent/npm/node_modules/@tinoy/pi-fleet
 Unit=pi-patch-apply.service
 
 [Install]
