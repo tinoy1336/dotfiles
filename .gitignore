@@ -435,3 +435,52 @@ __pycache__/
 /.local/pi/foreman/*
 !/.local/pi/foreman/worker.md
 !/.local/pi/foreman/clockout.md
+
+# --- 7. the files this home renders from the house palette --------------------
+# A carrier is a template module beside the file it produces, plus the renderer's
+# record of that file. .github/scripts/palette-targets.json is the list of them
+# and .github/scripts/palette-check.sh re-renders every entry, so what is tracked
+# here and what the gate checks cannot drift apart. Each carrier takes the
+# narrowest lines that reach its three files.
+#
+# .config/hypr, .config/kitty, .config/gtk-3.0 and .config/gtk-4.0 are re-included
+# wholesale in section 3, so the carriers that live there need nothing here.
+!/.config/git/colors.inc
+!/.config/git/colors.inc.record.json
+!/.config/git/colors.template.ts
+!/.config/tmux/
+/.config/tmux/*
+!/.config/tmux/colors.conf
+!/.config/tmux/colors.conf.record.json
+!/.config/tmux/colors.template.ts
+!/.config/zsh/
+/.config/zsh/*
+!/.config/zsh/house-colors.sh
+!/.config/zsh/house-colors.sh.record.json
+!/.config/zsh/house-colors.template.ts
+!/.config/gtkrc.house
+!/.config/gtkrc.house.record.json
+!/.config/gtkrc.house.template.ts
+!/.config/house-palette/
+/.config/house-palette/*
+!/.config/house-palette/kdeglobals.colours.ini
+!/.config/house-palette/kdeglobals.colours.ini.record.json
+!/.config/house-palette/kdeglobals.colours.template.ts
+# the client's profile is denied wholesale in 6d — it holds that account's token
+# and its cache — and only the QuickCSS file the client watches is re-included
+!/.config/vesktop/
+/.config/vesktop/*
+!/.config/vesktop/settings/
+/.config/vesktop/settings/*
+!/.config/vesktop/settings/quickCss.css
+!/.config/vesktop/settings/quickCss.css.record.json
+!/.config/vesktop/settings/quickCss.template.ts
+# the player's profile is denied wholesale too: its config.json holds the
+# scrobbling session. The theme it mounts is already re-included by extension,
+# so its template and its record are named here and nothing else opens
+!/.config/YouTube Music/themes/house.template.ts
+!/.config/YouTube Music/themes/house.css.record.json
+# the agent theme directory: the generated theme is re-included above, and its
+# template and record are named beside it
+!/.pi/agent/themes/house.template.ts
+!/.pi/agent/themes/house.json.record.json
