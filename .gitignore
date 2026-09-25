@@ -383,6 +383,12 @@ __pycache__/
 # research reports rather than a skill the agent runs
 !/.pi/agent/skills/
 /.pi/agent/skills/foreman/
+# the generated theme the settings select: the file is rendered from the house
+# palette, so a restore needs it; the directory is re-included only so the file
+# line below can reach it, and any other file written there stays ignored
+!/.pi/agent/themes/
+/.pi/agent/themes/*
+!/.pi/agent/themes/house.json
 # the patch set — the patches, the runner, the doctor and the self test —
 # without the apply log, its lock, the upstream copies the runner keeps and the
 # two patch replies a package bump superseded

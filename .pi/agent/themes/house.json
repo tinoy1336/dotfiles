@@ -1,0 +1,73 @@
+{
+  "$schema": "https://raw.githubusercontent.com/earendil-works/pi/main/packages/coding-agent/src/modes/interactive/theme/theme-schema.json",
+  "name": "house",
+  "colors": {
+    "accent": "#8ab5f7",
+    "border": "#191b1f",
+    "borderAccent": "#8ab5f7",
+    "borderMuted": "#222429",
+    "success": "#8af7ae",
+    "error": "#ff6b6b",
+    "warning": "#f0b35a",
+    "muted": "#a6a6a6",
+    "dim": "#606163",
+    "text": "#e6e6e6",
+    "thinkingText": "#a6a6a6",
+
+    "selectedBg": "#212a3a",
+    "scrollbarTrack": "#191b1f",
+    "scrollbarThumb": "#606163",
+    "searchMatchBg": "#445878",
+    "searchMatchText": "#ffffff",
+    "userMessageBg": "#374761",
+    "userMessageText": "#e6e6e6",
+    "customMessageBg": "#263144",
+    "customMessageText": "#e6e6e6",
+    "customMessageLabel": "#adcbf9",
+    "toolPendingBg": "#222429",
+    "toolSuccessBg": "#1e322a",
+    "toolErrorBg": "#311b1f",
+    "toolTitle": "#8ab5f7",
+    "toolOutput": "#c9c9c9",
+
+    "mdHeading": "#ffffff",
+    "mdLink": "#8ab5f7",
+    "mdLinkUrl": "#606163",
+    "mdCode": "#4cccf2",
+    "mdCodeBlock": "#8af7ae",
+    "mdCodeBlockBorder": "#191b1f",
+    "mdQuote": "#c9c9c9",
+    "mdQuoteBorder": "#222429",
+    "mdHr": "#222429",
+    "mdListBullet": "#8ab5f7",
+
+    "toolDiffAdded": "#8af7ae",
+    "toolDiffRemoved": "#ff6b6b",
+    "toolDiffContext": "#606163",
+
+    "syntaxComment": "#a6a6a6",
+    "syntaxKeyword": "#8ab5f7",
+    "syntaxFunction": "#adcbf9",
+    "syntaxVariable": "#e6e6e6",
+    "syntaxString": "#8af7ae",
+    "syntaxNumber": "#f0b35a",
+    "syntaxType": "#4cccf2",
+    "syntaxOperator": "#ffffff",
+    "syntaxPunctuation": "#606163",
+
+    "thinkingOff": "#606163",
+    "thinkingMinimal": "#a6a6a6",
+    "thinkingLow": "#c9c9c9",
+    "thinkingMedium": "#e6e6e6",
+    "thinkingHigh": "#ffffff",
+    "thinkingXhigh": "#8ab5f7",
+    "thinkingMax": "#adcbf9",
+
+    "bashMode": "#8af7ae"
+  },
+  "export": {
+    "pageBg": "#0a0c11",
+    "cardBg": "#16181c",
+    "infoBg": "#222429"
+  }
+}
