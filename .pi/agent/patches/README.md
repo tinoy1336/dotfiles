@@ -83,7 +83,7 @@ run produces one notification.
 |---|---|
 | `apply-patches.sh` | the applier |
 | `managed-patches.conf` | which patches to keep applied, and their marker specs |
-| `selftest.sh` | self-test: a moved target must fail safely, and every entry the manifest registers for the mirrored packages (`@juicesharp/rpiv-todo`, `pi-subagents`, `@tinoy/pi-deepseek-cost`, `@tinoy/pi-fleet`) must patch a pristine mirror to the installed bytes (the mirror's manifest is built from `managed-patches.conf`, the mirror is seeded from the installed version's pre-patch copies, a missing seed stops the test and names the version, and a guard fails when a registered entry is not mirrored) |
+| `selftest.sh` | self-test: a moved target must fail safely, and every entry the manifest registers for the mirrored packages (`@juicesharp/rpiv-todo`, `pi-subagents`, `@tinoy/pi-deepseek-cost`, `@tinoy/pi-fleet`) must patch a pristine mirror to the installed bytes (the mirror's manifest is built from `managed-patches.conf`, the mirror is seeded from the installed version's pre-patch copies, a missing seed stops the test and names the version, and a guard fails when a registered entry is not mirrored); and every package directory the manifest names must appear in the watch list the user manager reports for `pi-patch-apply.path` (`systemctl --user show pi-patch-apply.path -p Paths`), so a package registered without a watch entry fails here and names the package instead of being rewritten unpatched |
 | `doctor.sh` | the pi toolchain check the applier ends every run with, so the existing trigger also covers it: `HOST` (the `pi` on PATH resolved to the package that owns it, with that package's version — two installs with two owners is the failure class), `RUNNER` (the async runner's module graph imported in Node through the same preload the spawned child uses, which fails on a peer export the installed `@earendil-works/pi-ai` no longer provides) and `PATCHES` (every manifest marker re-grepped against the installed files). Silent and exit 0 while healthy; a failure prints the check, notifies once with the fix command and exits 1. `-v` prints the whole report for a hand run |
 | `apply.log` | append-only record of every run, with dry-run output on failure (trimmed to the last 1000 lines past 2000) |
 | `FAILED` | present only while the last run had a failure |
@@ -126,7 +126,15 @@ Two systemd user units, in `~/.config/systemd/user/`:
   directory mtimes, which fires the service. The list has to name every package directory
   in `managed-patches.conf`: a patched package whose directory is not watched is rewritten
   with nothing to fire the service, and is restored only by a hand run of
-  `apply-patches.sh`.
+  `apply-patches.sh`. `selftest.sh` cross-checks the two — it reads the package directories
+  out of the manifest and the watch list out of the running unit
+  (`systemctl --user show pi-patch-apply.path -p Paths`), so it fails and names the package
+  when the two disagree. Registering a patch is therefore two edits in one change: the
+  manifest line, and a `PathModified=` line for that package's directory in the unit,
+  followed by `systemctl --user daemon-reload` and a run of `selftest.sh`. The scope
+  directories (`@juicesharp`, `@tinoy`, `node_modules`) do not cover a package: a watch on
+  the parent sees the package directory be created or replaced, not the file writes npm
+  makes inside it.
 - `pi-patch-apply.service` — `Type=oneshot`, `ExecStart=apply-patches.sh`,
   `WantedBy=default.target` so it also runs at login/boot, `TimeoutStartSec=240` so a run
   has room for the install-in-flight retries and the doctor while still being unable to

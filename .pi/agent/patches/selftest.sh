@@ -14,6 +14,11 @@
 #   of the previous version carried forward for a file assumed unchanged) fails here
 #   as a mismatch against the installed file, which is the point: the seed has to be
 #   the bytes the package shipped, not the bytes the previous one did.
+# Scenario 3 (trigger coverage): every package directory the manifest names must appear
+#   in the PathModified list the user manager reports for pi-patch-apply.path. A package
+#   registered in the manifest with no watch entry on its directory is rewritten by npm
+#   with nothing to fire the applier, so it lands unpatched and no other check here sees
+#   it; this one fails and names the package.
 #
 # The test writes its own log and failure record into a temporary directory, so the
 # real apply.log and FAILED are untouched, and package files outside the temporary
@@ -215,6 +220,32 @@ for name in $MIRROR_ENTRIES; do
 		no "mirror log has no apply entry for $name"
 	fi
 done
+
+# --- scenario 3: the trigger watches every patched package ---------------------
+# Neither side is a list kept in this file: the package directories come from the manifest
+# the applier reads, and the watch list is the one the user manager reports at this moment,
+# because that is what really fires the applier — a unit file edited without a reload
+# changes what the file says, not what the manager watches.
+watch_paths() { # the PathModified entries systemd reports for the trigger
+	timeout 15 systemctl --user show pi-patch-apply.path -p Paths 2>/dev/null |
+		awk '/^Paths=.* \(PathModified\)$/ { sub(/^Paths=/, ""); sub(/ \(PathModified\)$/, ""); print }'
+}
+
+watched="$(watch_paths)"
+if [ -z "$watched" ]; then
+	no "the trigger's watch list could not be read (systemctl --user show pi-patch-apply.path -p Paths reported nothing — is the user manager running?)"
+else
+	unwatched="$(awk -F'\t' -v w="$watched" '
+		BEGIN { n = split(w, list, "\n"); for (i = 1; i <= n; i++) watched[list[i]] = 1 }
+		!/^#/ && NF >= 4 && !($2 in watched) { entries[$2] = entries[$2] (entries[$2] != "" ? "," : "") $1 }
+		END { for (dir in entries) printf "%s [entries: %s]\n", dir, entries[dir] }
+	' "$ROOT/managed-patches.conf" | sort)"
+	if [ -n "$unwatched" ]; then
+		no "the trigger does not watch every patched package: $(printf '%s' "$unwatched" | tr '\n' '; ') — add a PathModified= line for each of those directories to pi-patch-apply.path and reload the unit"
+	else
+		ok "the trigger watches every package directory the manifest names ($(printf '%s\n' "$watched" | wc -l) path entries)"
+	fi
+fi
 
 printf '\n%s\n' "selftest: $pass passed, $fail failed"
 [ "$fail" -eq 0 ] || exit 1
