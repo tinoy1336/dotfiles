@@ -57,6 +57,27 @@ window.dialog,
   font-family: "JetBrainsMono Nerd Font";
 }
 
+/*
+ * Corner radius of dialog surfaces.
+ *
+ * libadwaita draws the dialog card with the window's 18px radius and gives the
+ * sheet inside it a separate 15px radius plus a 1px outline on that same
+ * curve, so the sheet outline and the card disagree by 3px at every corner and
+ * the backdrop shows through the wedge between them.  Both surfaces take the
+ * house 18px radius.
+ *
+ * GTK derives an outline's corner radius from the styled node's own
+ * border-radius, offset by outline-offset + outline-width; libadwaita's
+ * sheet outline is 1px with outline-offset -1px, so the two cancel and the
+ * outline radius equals border-radius -- the card's radius, with no offset
+ * compensation.
+ */
+window.messagedialog,
+window.dialog-window,
+floating-sheet > sheet {
+  border-radius: 18px;
+}
+
 window.messagedialog .response-area button,
 window.dialog .dialog-action-area button {
   border-radius: 12px;
