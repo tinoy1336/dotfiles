@@ -481,6 +481,7 @@ __pycache__/
 !/.config/YouTube Music/themes/house.template.ts
 !/.config/YouTube Music/themes/house.css.record.json
 # the agent theme directory: the generated theme is re-included above, and its
-# template and record are named beside it
+# template and record are named beside it. The record carries no .json extension
+# because pi parses every *.json in this directory as a theme
 !/.pi/agent/themes/house.template.ts
-!/.pi/agent/themes/house.json.record.json
+!/.pi/agent/themes/house.json.record

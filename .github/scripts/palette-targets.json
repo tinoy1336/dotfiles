@@ -67,7 +67,7 @@
     {
       "template": ".pi/agent/themes/house.template.ts",
       "output": ".pi/agent/themes/house.json",
-      "record": ".pi/agent/themes/house.json.record.json"
+      "record": ".pi/agent/themes/house.json.record"
     }
   ]
 }
