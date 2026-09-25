@@ -5,7 +5,10 @@
 # checked here rather than assumed:
 #
 #   - a first run writes the tracked configuration and fills in the per-machine
-#     values: the headset address, the hostname, the home path
+#     values: the hostname and the home path
+#   - both values are derived from the machine the installer runs on: the
+#     hostname from `hostnamectl --static`, the user name from the target home,
+#     and neither is asked for
 #   - a second run writes nothing and changes nothing, byte for byte
 #   - a file that already exists and differs is named and left alone
 #   - running as root is refused
@@ -13,7 +16,9 @@
 #     installer it names
 #
 # Nothing is installed outside a scratch directory under ${TMPDIR:-/tmp}, and the
-# repository is read as the clone source, never written.
+# repository is read as the clone source, never written. The one run that reads a
+# home outside that scratch directory is the /home/<name> derivation check, which
+# is a --dry-run against $HOME and writes nothing.
 #
 # Usage: installer-smoke.sh [checkout]
 
@@ -64,7 +69,10 @@ result_counts() {
 
 count_field() { printf '%s' "$1" | cut -d' ' -f"$2"; }
 
-mac="11:22:33:44:55:66"
+# A path is quoted before it is handed to a terminal-owning helper as one command
+# string, so the helper re-reads it as the single argument it was.
+esc_dq() { printf '%s' "$1" | sed -e 's/[\\"]/\\&/g' -e 's/[$`]/\\&/g'; }
+
 host="smoke-host"
 mkdir -p "$home"
 
@@ -79,7 +87,7 @@ if [ -x "$forwarder" ]; then
 fi
 
 # ---- first run ---------------------------------------------------------------
-"$installer" "$home" --repo "$src" --hostname "$host" --bluetooth-address "$mac" \
+"$installer" "$home" --repo "$src" --hostname "$host" \
   --quiet > "$work/first.log" 2>&1 || problem "the first install failed"
 
 counts=$(result_counts "$work/first.log")
@@ -90,19 +98,17 @@ on_disk=$(installed_count)
   problem "the first run reported $written path(s) written and $on_disk arrived on disk"
 [ "${written:-0}" -gt 100 ] || problem "the first run wrote only $written path(s)"
 
-# The values it fills in: the address lands in the rendered fragment beside the
-# tracked template, and this machine's name is a link to the tracked declaration.
+# The value it fills in: this machine's name is a link to the tracked
+# declaration. No tracked wireplumber fragment may name a device — each device's
+# volume is WirePlumber's own state, so a fragment carrying a real address would
+# pin one machine's hardware into the tracked set. Both spellings WirePlumber
+# uses for an address (colon in a device name, underscore in a node name) are
+# read, and the placeholder spelling the tracked set uses is accepted.
 fragdir="$home/.config/wireplumber/wireplumber.conf.d"
-grep -q "$mac" "$fragdir/70-bt-headset-local.conf" ||
-  problem "the headset address did not reach the rendered wireplumber fragment"
-grep -q "$(printf '%s' "$mac" | tr ':' '_')" "$fragdir/70-bt-headset-local.conf" ||
-  problem "the underscore form of the headset address did not reach the rendered fragment"
-grep -q 'AA_BB_CC_DD_EE_FF' "$fragdir/70-bt-headset-local.conf.in" ||
-  problem "the tracked template lost its placeholder"
-grep -q 'AA_BB_CC_DD_EE_FF\|AA:BB:CC:DD:EE:FF' "$fragdir/70-bt-headset-local.conf" &&
-  problem "the rendered fragment still carries a placeholder"
-grep -q 'AA_BB_CC_DD_EE_FF' "$fragdir/50-bt-default.conf" &&
-  problem "the tracked rule names a device, so it is not machine-independent"
+[ -d "$fragdir" ] || problem "the wireplumber drop-in directory was not installed"
+grep -rEh -o -e '([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}' -e '([0-9A-Fa-f]{2}_){5}[0-9A-Fa-f]{2}' "$fragdir" |
+  grep -qv -e '^AA:BB:CC:DD:EE:FF$' -e '^AA_BB_CC_DD_EE_FF$' &&
+  problem "a tracked wireplumber fragment names a device, so it is not machine-independent"
 
 [ -L "$home/.config/hosts/$host" ] ||
   problem "this machine's name is not a link to the tracked host declaration"
@@ -123,7 +129,7 @@ grep -rq '/home/tinoy' "$home/.config" "$home/.local" 2>/dev/null &&
 
 # ---- second run: idempotent --------------------------------------------------
 before=$(tree_digest)
-"$installer" "$home" --repo "$src" --hostname "$host" --bluetooth-address "$mac" \
+"$installer" "$home" --repo "$src" --hostname "$host" \
   --quiet > "$work/second.log" 2>&1 || problem "the second install failed"
 after=$(tree_digest)
 
@@ -135,12 +141,73 @@ second_kept=$(count_field "$(result_counts "$work/second.log")" 2)
   problem "the second run reported $second_kept unchanged path(s), expected $written"
 [ "$before" = "$after" ] || problem "the scratch home changed between two identical runs"
 
+# ---- the two derived values --------------------------------------------------
+# Neither value is asked for: the hostname is the machine's own name and the user
+# name is the owner of the target home. A scratch home sits outside /home, so for
+# it the derived user is whoever runs this script — which is what makes the
+# --user disagreement below checkable, and what makes the /home/<name> branch
+# reachable only where this machine has such a home (see below).
+me=$(id -un)
+detected=$(hostnamectl --static 2>/dev/null || true)
+[ -n "$detected" ] || detected=$(hostname -s 2>/dev/null || true)
+[ -n "$detected" ] || problem "this host reports no name to derive"
+
+"$installer" "$home" --repo "$src" --dry-run > "$work/derived.log" 2>&1 ||
+  problem "the dry run with neither --hostname nor --user failed"
+grep -q "linked      .config/hosts/$detected -> HOSTNAME" "$work/derived.log" ||
+  problem "the dry run did not link the machine's own detected name: $detected"
+grep -q 'disagrees' "$work/derived.log" &&
+  problem "the run without --user reported a disagreement with the derived user"
+
+"$installer" "$home" --repo "$src" --dry-run --user smoke-other > "$work/other.log" 2>&1 ||
+  problem "the dry run with --user smoke-other failed"
+grep -q "disagrees with the user $home names ($me)" "$work/other.log" ||
+  problem "--user smoke-other did not report its disagreement with the derived user ($me)"
+
+# The prompt is gone: with a terminal on stdin the installer reads nothing and
+# waits for nothing. `script` supplies that terminal without a session to hang in.
+if command -v script >/dev/null 2>&1; then
+  ptycmd="\"$(esc_dq "$installer")\" \"$(esc_dq "$home")\" --repo \"$(esc_dq "$src")\" --dry-run"
+  script -qec "$ptycmd" /dev/null < /dev/null > "$work/pty.log" 2>&1 ||
+    problem "the installer failed with a terminal on stdin"
+  grep -qi 'hostname for the host declaration' "$work/pty.log" &&
+    problem "the installer still prompts for the hostname"
+else
+  echo "installer-smoke: SKIPPED the hostname-prompt check — this host has no script(1)" >&2
+  echo "installer-smoke: to give the installer a terminal on stdin" >&2
+fi
+
+# A second scratch home, installed with neither flag: what it links is the
+# machine's own detected name, so the hostname is derived rather than supplied.
+home2="$work/home2"
+mkdir -p "$home2"
+"$installer" "$home2" --repo "$src" --quiet > "$work/noflags.log" 2>&1 ||
+  problem "the install with neither --hostname nor --user failed"
+[ -L "$home2/.config/hosts/$detected" ] ||
+  problem "the install linked no declaration for the derived hostname $detected"
+
+# The /home/<name> branch: the target home's own name is the derived user. It
+# cannot be reached from a scratch home — that would take a directory under /home,
+# which this test may not create — so it runs only where this machine already has
+# such a home with the repository's clone beside it, and is announced as skipped
+# everywhere else.
+if [ "$(dirname -- "$HOME")" = "/home" ] && [ -f "$HOME/.dotfiles.git/HEAD" ]; then
+  timeout 300 "$installer" "$HOME" --repo "$HOME/.dotfiles.git" --dry-run \
+    --user smoke-other > "$work/home-branch.log" 2>&1 ||
+    problem "the read-only dry run against \$HOME failed"
+  grep -q "disagrees with the user $HOME names (${HOME#/home/})" "$work/home-branch.log" ||
+    problem "the /home/<name> branch did not derive ${HOME#/home/} from $HOME"
+else
+  echo "installer-smoke: SKIPPED the /home/<name> derivation check — it needs a target" >&2
+  echo "installer-smoke: home directly under /home with the repository's clone beside it" >&2
+fi
+
 # ---- refusal: an existing file that differs ----------------------------------
 printf '\n# a distribution default, not the repository content\n' >> "$home/.zshrc"
 marker="a distribution default"
 keep=$(md5sum < "$home/.zshrc")
 
-"$installer" "$home" --repo "$src" --hostname "$host" --bluetooth-address "$mac" \
+"$installer" "$home" --repo "$src" --hostname "$host" \
   --quiet > "$work/third.log" 2>&1 || problem "the run against a differing file failed"
 
 grep -q "\.zshrc" "$work/third.log" || problem "the differing file was not named in the summary"

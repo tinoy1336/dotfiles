@@ -10,13 +10,6 @@
 # <target-home>, filling in the values that belong to one machine rather than to
 # the repository:
 #
-#   the headset Bluetooth address   the tracked template
-#                                   .config/wireplumber/wireplumber.conf.d/
-#                                   70-bt-headset-local.conf.in carries the
-#                                   placeholders AA:BB:CC:DD:EE:FF and
-#                                   AA_BB_CC_DD_EE_FF; this script renders it
-#                                   into the fragment beside it, the one file
-#                                   there that the repository does not carry
 #   the hostname                    the host declaration is tracked under the
 #                                   placeholder name .config/hosts/HOSTNAME/;
 #                                   this script links the machine's own name to
@@ -26,25 +19,19 @@
 #                                   it: the Hyprland configuration, the systemd
 #                                   user units, the environment snippets
 #
-# A tracked template is a file whose name ends in .in. It is written as the
-# commit carries it, placeholder intact, and its rendered twin — the same name
-# without the suffix — is written beside it: that is where a machine's value
-# belongs, and no tool mistakes the twin for the template, because WirePlumber
-# reads only *.conf and host-apply only a directory name.
-#
 # Options:
 #   --repo URL                clone or update from URL
 #                             (default https://github.com/tinoy1336/dotfiles.git)
 #   --ref REF                 branch, tag or commit to install (default: the ref
 #                             the repository itself is on)
-#   --bluetooth-address MAC   paired headset address, e.g. 11:22:33:44:55:66;
-#                             prompted for when omitted, and rendered into the
-#                             local wireplumber fragment beside the template
-#   --hostname NAME           this machine's hostname; prompted for, then read
-#                             from `hostnamectl --static`, when omitted
+#   --hostname NAME           the hostname to install under — for installing
+#                             onto a machine you are not on (default: this
+#                             machine's own name, from `hostnamectl --static`)
 #   --user NAME               the user the target home belongs to; the paths
 #                             that name a user without naming a home get it
-#                             (default: the user running this script)
+#                             (default: the owner of the target home when it
+#                             sits directly under /home, otherwise the user
+#                             running this script)
 #   --force                   overwrite a file that exists and differs, printing
 #                             the md5 of what it destroys
 #   --no-substitute           write the tracked content verbatim, placeholders
@@ -97,12 +84,13 @@ to one machine and printing every path it writes.
                             (default https://github.com/tinoy1336/dotfiles.git)
   --ref REF                 branch, tag or commit to install
                             (default: the ref the repository itself is on)
-  --bluetooth-address MAC   paired headset address, e.g. 11:22:33:44:55:66,
-                            rendered into the local wireplumber fragment beside
-                            the tracked template
-  --hostname NAME           this machine's hostname
-  --user NAME               the user the target home belongs to
-                            (default: the user running this script)
+  --hostname NAME           the hostname to install under — for installing
+                            onto a machine you are not on
+                            (default: this machine's own name)
+  --user NAME               the user the target home belongs to — for
+                            installing onto a machine you are not on
+                            (default: the owner of the target home under
+                            /home, otherwise the user running this script)
   --force                   overwrite a file that exists and differs, printing
                             the md5 of what it destroys
   --no-substitute           write the tracked content verbatim
@@ -128,7 +116,6 @@ esc() { printf '%s' "$1" | sed -e 's/[\\&|]/\\&/g'; }
 # ---- options -----------------------------------------------------------------
 repo="https://github.com/tinoy1336/dotfiles.git"
 ref=""
-mac=""
 host=""
 user=""
 target=""
@@ -151,11 +138,6 @@ while [ $# -gt 0 ]; do
     --ref)
       [ $# -ge 2 ] || die "--ref needs a value"
       ref=$2
-      shift 2
-      ;;
-    --bluetooth-address)
-      [ $# -ge 2 ] || die "--bluetooth-address needs a value"
-      mac=$2
       shift 2
       ;;
     --hostname)
@@ -249,18 +231,16 @@ git_permitted() {
 
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
 
-# ---- what this machine is called, and which headset it pins ------------------
+# ---- what this machine is called ---------------------------------------------
 host_default=""
 if command -v hostnamectl >/dev/null 2>&1; then
   host_default=$(hostnamectl --static 2>/dev/null || true)
 fi
 [ -n "$host_default" ] || host_default=$(hostname -s 2>/dev/null || true)
 
-if [ -z "$host" ] && [ "$substitute" -eq 1 ] && [ -t 0 ] && [ "$dry" -eq 0 ]; then
-  printf 'Hostname for the host declaration [%s]: ' "${host_default:-none}"
-  IFS= read -r host || true
-  [ -n "$host" ] || host=$host_default
-fi
+# The machine's own name is the default, detected rather than asked for: a
+# hostname is not a value this script's operator knows better than the machine
+# does. --hostname stays as the override for installing onto another machine.
 if [ -z "$host" ] && [ "$substitute" -eq 1 ]; then
   host=$host_default
 fi
@@ -270,25 +250,6 @@ if [ -n "$host" ]; then
     */* | *[[:space:]]*) die "not a hostname: $host" ;;
     HOSTNAME) die "'HOSTNAME' is the placeholder this script replaces, not a hostname" ;;
   esac
-fi
-
-if [ -z "$mac" ] && [ "$substitute" -eq 1 ] && [ -t 0 ] && [ "$dry" -eq 0 ]; then
-  printf 'Paired headset Bluetooth address, or blank to leave the placeholder: '
-  IFS= read -r mac || true
-fi
-if [ -n "$mac" ]; then
-  case "$mac" in
-    [0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]) ;;
-    *) die "not a Bluetooth address: $mac (expected AA:BB:CC:DD:EE:FF)" ;;
-  esac
-  mac=$(printf '%s' "$mac" | tr 'a-f' 'A-F')
-fi
-
-# The placeholder the repository carries, in both spellings it uses. Passing it
-# back in is the same as leaving it: there is nothing to fill in.
-mac_placeholder="AA:BB:CC:DD:EE:FF"
-if [ "$mac" = "$mac_placeholder" ]; then
-  mac=""
 fi
 
 # ---- clone or update ---------------------------------------------------------
@@ -345,8 +306,33 @@ surface=".github/ README.md CONTRIBUTING.md LICENSE install.sh"
 
 # The user the target home belongs to, for the paths that name one without
 # naming a home directory (a hyprpm cache path, a comment about which user a
-# shim runs as). The repository's own user name needs no substitution.
-[ -n "$user" ] || user=$(id -un)
+# shim runs as). Those paths are written for the user who owns the home being
+# installed into, not for whoever runs this script: `./install.sh /home/someone`
+# run by a third party must substitute `someone` there, exactly as the home path
+# itself becomes /home/someone. So the value is derived from the target home —
+# /home/<name> owns a home whose name is <name>, and any other target (a
+# scratch home, a home outside /home) belongs to the user running the script.
+derived_user=$(id -un)
+case "$target" in
+  /home/*)
+    candidate=${target#/home/}
+    case "$candidate" in
+      "" | */* | *[[:space:]]*) ;;
+      *) derived_user=$candidate ;;
+    esac
+    ;;
+esac
+
+# An explicit --user wins, because the flag exists to install on behalf of
+# another machine; a disagreement is reported rather than refused, since the
+# caller may know something the home path does not show.
+if [ -n "$user" ]; then
+  [ "$user" = "$derived_user" ] ||
+    warn "--user $user disagrees with the user $target names ($derived_user) — using $user"
+else
+  user=$derived_user
+fi
+
 case "$user" in
   tinoy | "") user="" ;;
 esac
@@ -438,23 +424,8 @@ while IFS= read -r -d '' entry; do
   if [ "$substitute" -eq 1 ] && [ "$mode" != "120000" ] && [ "$path" != ".gitconfig" ]; then
     expressions=(-e "s|/home/tinoy|$(esc "$target")|g")
     [ -z "$user" ] || expressions+=(-e "s|\\btinoy\\b|$(esc "$user")|g")
-    if [ -n "$mac" ]; then
-      expressions+=(-e "s|$mac_placeholder|$mac|g")
-      expressions+=(-e "s|${mac_placeholder//:/_}|${mac//:/_}|g")
-    fi
     LC_ALL=C sed "${expressions[@]}" "$blob" > "$new"
   else
-    cp "$blob" "$new"
-  fi
-
-  template=${path%.in}
-  if [ "$template" != "$path" ]; then
-    # A tracked template ends in .in, which no tool reads. Its rendered twin —
-    # the same name without the suffix — carries the values, so the template is
-    # written as the commit holds it and the twin is written beside it.
-    if [ "$substitute" -eq 1 ]; then
-      place "$template" "$permissions" "$new"
-    fi
     cp "$blob" "$new"
   fi
 
@@ -481,11 +452,6 @@ say "$prog: result      $written written, $kept unchanged, $skipped skipped, $re
 say "$prog: repository-surface paths not installed: $surface"
 
 if [ "$substitute" -eq 1 ]; then
-  if [ -n "$mac" ]; then
-    say "$prog: rendered    the local fragment with headset address $mac"
-  else
-    warn "headset address not given — the local fragment was not rendered, so no device volume is pinned"
-  fi
   if [ -n "$host" ]; then
     say "$prog: linked      .config/hosts/$host -> HOSTNAME"
   else

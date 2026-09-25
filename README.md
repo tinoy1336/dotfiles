@@ -25,13 +25,16 @@ cd dotfiles
 
 It clones the repository into `$HOME/.dotfiles.git`, writes the tracked
 configuration into the home directory you name, and prints every path it wrote.
-It asks for the two values it cannot know — the paired headset's Bluetooth
-address and this machine's hostname — and takes them as flags instead when it is
-not attached to a terminal:
+The values that belong to the machine rather than to the configuration are
+derived from the machine the script runs on: the hostname from `hostnamectl
+--static` (falling back to `hostname -s`), and the user name from the target
+home — `/home/<name>` is owned by `<name>`, and any other target belongs to the
+user running the script. `--hostname` and `--user` are the overrides for
+installing onto a machine you are not on, and a `--user` that disagrees with the
+home being installed into is reported and honoured:
 
 ```sh
 ./install.sh /home/someone \
-  --bluetooth-address 00:11:22:33:44:55 \
   --hostname someone-laptop \
   --user someone
 ```
@@ -59,36 +62,35 @@ artifact below, placeholders included.
 
 ## The placeholders in the tracked set
 
-Three values are not this repository's to keep: the paired headset's Bluetooth
-address, this machine's hostname, and the author's home path. They are written as
-placeholders so they read as obviously incomplete rather than as silently wrong.
+Two values are not this repository's to keep: this machine's hostname and the
+author's home path. They are written as placeholders so they read as obviously
+incomplete rather than as silently wrong.
 
-The first two cannot simply be left in a tracked file and substituted on the way
+The hostname cannot simply be left in a tracked file and substituted on the way
 in, because this checkout is also a live home directory: whatever is tracked is
-what the machine reads. So the tracked set carries the *shape* of each value and
-the machine keeps the value itself, in a file git ignores.
+what the machine reads. So the tracked set carries the *shape* of the name and
+the machine keeps the name itself, in a link git ignores. The home path is the
+one value the installer substitutes as it writes, because it names no content of
+its own.
 
 | value | the tracked file | where the machine's value lives | how the tool finds it |
 | --- | --- | --- | --- |
-| the headset's Bluetooth address, `AA:BB:CC:DD:EE:FF` and WirePlumber's `AA_BB_CC_DD_EE_FF` | `.config/wireplumber/wireplumber.conf.d/70-bt-headset-local.conf.in` — a template, named so WirePlumber never reads it (`*.in` is not `*.conf`) | the rendered fragment beside it, `70-bt-headset-local.conf`, which `.gitignore` excludes | the drop-in directory is itself an include mechanism: WirePlumber loads every `*.conf` in it, in name order, and appends what a fragment defines to the rules an earlier fragment opened |
 | `HOSTNAME` | the directory `.config/hosts/HOSTNAME/` and its `host.conf` — a machine's declaration, under the placeholder name | this machine's own name, as the link `.config/hosts/<hostname>` → `HOSTNAME`, which `.gitignore` excludes | `~/.local/bin/host-apply` opens the directory named by `hostnamectl --static`; the name is the link, the declaration stays the tracked directory, and no content is copied to drift from it |
 | `/home/tinoy` | the Hyprland configuration and binds, the systemd user units, the environment snippets, the comment at the top of `.gitignore` | — | the installer substitutes it on the way in; nothing reads it at runtime |
 
 `.config/wireplumber/wireplumber.conf.d/50-bt-default.conf` names no device: it is
 the rule that gives any Bluetooth sink the default slot, so it is the same on
-every machine. The two rules that pin one headset's connect-time volume are the
-only ones that need the address, and they are the ones in the rendered fragment —
-without it they simply match no device.
+every machine. No device's volume is configured anywhere in the tracked set:
+WirePlumber stores the volume and mute of every device route in its own state
+directory and restores them when the route comes back, so each device returns at
+the level it was left at. `10-default-sink-volume.conf` holds the one value such
+a route takes when it has nothing stored — a device's first use on a machine, and
+its first use after the state directory is cleared.
 
-The installer creates both local artifacts: it renders the fragment from its
-template and links the machine's name to the declaration. By hand it is those two
-commands:
+The installer creates the one local artifact: it links the machine's name to the
+declaration. By hand it is that one command:
 
 ```sh
-cd ~/.config/wireplumber/wireplumber.conf.d
-sed -e 's|AA:BB:CC:DD:EE:FF|00:11:22:33:44:55|g' \
-    -e 's|AA_BB_CC_DD_EE_FF|00_11_22_33_44_55|g' \
-    70-bt-headset-local.conf.in > 70-bt-headset-local.conf
 ln -s HOSTNAME ~/.config/hosts/$(hostnamectl --static)
 ```
 
@@ -100,14 +102,14 @@ is not the author's.
 ## What this is not
 
 - **Not a portable dotfiles setup, even with the installer.** The installer
-  fills in the three placeholders above and nothing else: the files are the
+  fills in the two placeholders above and nothing else: the files are the
   configuration of one installed system, taken as-is.
 - **Not machine-independent.** Absolute paths, a hostname and a set of
   device-specific rules appear throughout, because that is what the files on disk
   contain. The installer substitutes the home path and the hostname; the device
-  rules need a decision per machine, and enough of them do something only on this
-  hardware (an accelerometer for display rotation, an ASUS keyboard, an AMD GPU
-  watchdog) that copying a file without reading it is the wrong move.
+  scripts need a decision per machine, and enough of them do something only on
+  this hardware (an accelerometer for display rotation, an ASUS keyboard, an AMD
+  GPU watchdog) that copying a file without reading it is the wrong move.
 - **Not a mirror of the shell it drives.** The shell's code and its packaged
   units come from the tinshell repository and its `setup.sh`. This repository
   carries the live config and the units that are installed on this machine, not
@@ -172,6 +174,7 @@ and friends are kept out of unrelated `git add` calls.
 | --- | --- |
 | `.config/hypr/` | Hyprland configuration (`hyprland.lua` and the conf files it loads), idle timers, lock screen, the workspace-cycle and plugin-loader scripts |
 | `.config/tinshell/` | the shell's live config, one JSON file per surface |
+| `.config/wireplumber/` | the WirePlumber drop-ins — Bluetooth sinks take the default slot, and a device route with nothing stored starts at one set volume |
 | `.config/systemd/user/` | the user units: the shell, the artifact warm, the portal, polkit, wallpaper and rotation units |
 | `.config/hosts/HOSTNAME/` | a machine's declaration — the units it enables, and the root-scoped files it installs at their absolute paths. Read by `~/.local/bin/host-apply`, which looks the directory up by this machine's hostname; the installer links that name to this directory, so the declaration stays tracked under the placeholder name |
 | `.config/gtk-3.0/`, `.config/gtk-4.0/` | GTK theming and its window-decoration assets |
@@ -225,8 +228,7 @@ host-apply                     # re-enable the units this host declares
 to enable: git carries the unit files but not the enablement links, and
 `host-apply` opens the directory named after the machine (`hostnamectl --static`).
 A restore by hand links that name to the tracked declaration — `ln -s HOSTNAME
-~/.config/hosts/$(hostnamectl --static)` — and renders the wireplumber fragment
-the same way; both commands are under
+~/.config/hosts/$(hostnamectl --static)` — which is the command under
 [The placeholders in the tracked set](#the-placeholders-in-the-tracked-set). Two
 more things do not travel with the clone and need a hand — the pre-commit hook,
 which lives in the bare directory, and the two `node_modules` shims the shell's
@@ -248,11 +250,11 @@ order of how much they matter:
    sleep-inhibit, Bluetooth and fan units for one laptop, and its `root/` tree
    mirrors files into `/etc` and `/usr/local`. Replace the directory, keep the
    shape.
-4. **Device rules.** The wireplumber fragment that pins one headset's
-   connect-time volume names it by Bluetooth address, and the tracked template
-   carries a placeholder: with no rendered fragment the two rules match no
-   device, and on hardware without that headset they are better deleted than
-   filled in. The keyboard script targets an ASUS model. Both can be deleted.
+4. **Device rules.** Nothing in the tracked set names a device: the volume a
+   device route starts at is one value in the wireplumber drop-ins, applied
+   wherever a route has no stored volume, and each device's own level afterwards
+   is WirePlumber's state. The keyboard script targets an ASUS model, so it can
+   be deleted on hardware that is not that laptop.
 5. **Everything requiring the shell.** The tinshell config in `.config/tinshell/`,
    its units, and the `~/.local/bin` scripts that call `tinshell-route` do nothing
    without that project installed.
