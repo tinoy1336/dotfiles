@@ -67,6 +67,18 @@
 !/.config/gtk-3.0/
 !/.config/gtk-4.0/
 !/.config/systemd/
+# the shell's own units are its machinery, not this machine's configuration:
+# that tree carries a template for each under its systemd/ directory and its
+# setup.sh renders them to the paths below, so the copies here are not
+# committed. The units this machine declares — rotation, wallpaper, key refresh
+# and the patch applier — stay tracked.
+/.config/systemd/user/tinshell-shell.service
+/.config/systemd/user/tinshell-warm.service
+/.config/systemd/user/tinshell-promptd.service
+/.config/systemd/user/tinshell-portal.service
+/.config/systemd/user/tinshell-polkit.service
+/.config/systemd/user/tinshell-islands-fallback.service
+/.config/systemd/user/amdgpu-watch.service
 # per-machine host declarations: the units a machine enables and the
 # root-scoped files it installs, applied by ~/.local/bin/host-apply. The
 # declaration is tracked under the placeholder name HOSTNAME; host-apply opens
@@ -102,6 +114,17 @@
 /.local/bin/tinshell-host
 /.local/bin/tinshell-route
 /.local/bin/tinshell-mode
+# the promptd clients are the shell's own code: their sources live in that
+# tree's apps/promptd/clients/ and its setup.sh links them into this directory
+# under the names below, so the files here are not committed
+/.local/bin/prompt
+/.local/bin/zenity
+/.local/bin/pinentry-promptd
+/.local/bin/ssh-askpass-promptd
+/.local/bin/sudo-approve-askpass
+/.local/bin/sudo-approve-password-cat
+# the clients' shared library, sourced from beside its sources in that tree
+/.local/bin/lib/promptd-client.sh
 
 # --- 5. hygiene inside every re-included tree ---------------------------------
 **/node_modules/

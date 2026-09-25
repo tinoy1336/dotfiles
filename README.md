@@ -110,10 +110,13 @@ is not the author's.
   scripts need a decision per machine, and enough of them do something only on
   this hardware (an accelerometer for display rotation, an ASUS keyboard, an AMD
   GPU watchdog) that copying a file without reading it is the wrong move.
-- **Not a mirror of the shell it drives.** The shell's code and its packaged
-  units come from the tinshell repository and its `setup.sh`. This repository
-  carries the live config and the units that are installed on this machine, not
-  the sources that generate them.
+- **Not a mirror of the shell it drives.** What is carried here is this home's
+  configuration, the shell's live config included: `.config/tinshell/` holds the
+  values the running desktop reads. The shell's machinery belongs to the shell's
+  own repository — the unit files it declares and the promptd clients it links
+  into `~/.local/bin` are templates and sources in the tinshell tree, installed
+  by its `setup.sh`, and are not tracked here. A path whose only reason to exist
+  is that the shell runs is that repository's to carry.
 - **Not a backup of the home directory.** The tracked set is a whitelist; see
   below.
 
@@ -175,11 +178,11 @@ and friends are kept out of unrelated `git add` calls.
 | `.config/hypr/` | Hyprland configuration (`hyprland.lua` and the conf files it loads), idle timers, lock screen, the workspace-cycle and plugin-loader scripts |
 | `.config/tinshell/` | the shell's live config, one JSON file per surface |
 | `.config/wireplumber/` | the WirePlumber drop-ins — Bluetooth sinks take the default slot, and a device route with nothing stored starts at one set volume |
-| `.config/systemd/user/` | the user units: the shell, the artifact warm, the portal, polkit, wallpaper and rotation units |
+| `.config/systemd/user/` | the units this machine declares and enables: wallpaper, display rotation, key refresh and the patch applier's. The shell's own units — the shell, the artifact warm, the portal, polkit, the watchdog — are templates in the shell's tree, rendered to this directory by its `setup.sh`, and are not tracked here |
 | `.config/hosts/HOSTNAME/` | a machine's declaration — the units it enables, and the root-scoped files it installs at their absolute paths. Read by `~/.local/bin/host-apply`, which looks the directory up by this machine's hostname; the installer links that name to this directory, so the declaration stays tracked under the placeholder name |
 | `.config/gtk-3.0/`, `.config/gtk-4.0/` | GTK theming and its window-decoration assets |
 | `.config/` (single files) | terminal, launcher, file-dialog, wallpaper and portal config, `mimeapps.list` and the XDG user directories |
-| `.local/bin/` | the hand-written scripts: the wrapper, `host-apply`, the sudo and zenity shims, the desktop helpers, the promptd clients |
+| `.local/bin/` | this machine's hand-written scripts: the wrapper, `host-apply`, the sudo shim, the desktop helpers. The promptd clients are linked here by the shell's `setup.sh` and are not tracked |
 | shell and identity | `.zshrc`, `.zshenv`, `.bashrc`, `.gitconfig`, `.tmux.conf`, `.gtkrc-2.0` |
 | `.github/` | the CI workflows and the scripts they run |
 
@@ -189,7 +192,8 @@ Credential stores and key material (`~/.npmrc`, `~/.config/gh/`, the keyrings,
 the pass-cli vault's local key store), agent state under `~/.pi/`, machine state
 under `~/.local/state/` and `~/.local/share/`, caches, shell history, browser
 profiles, and the shell's own project tree — a separate repository, not part of
-this one.
+this one, its unit files and the promptd clients its `setup.sh` installs
+included.
 
 ## Restoring this onto a fresh machine
 
@@ -220,13 +224,18 @@ dotfiles read-tree HEAD    # the index from the commit; nothing on disk changes
 # instead of overwriting it — a distribution .bashrc is left as it is, per path
 dotfiles checkout-index -a
 
-bash <path-to-tinshell>/setup.sh   # the shell's own tree: units, links and root steps
+bash <path-to-tinshell>/setup.sh   # the shell's own tree: units, clients, links and root steps
 host-apply                     # re-enable the units this host declares
 ```
 
+`host-apply` follows `setup.sh` and not the other way round: the units
+`host.conf` enables include the shell's two, and those arrive with `setup.sh`,
+not with the checkout above.
+
 `~/.config/hosts/HOSTNAME/host.conf` is the record of which units a rebuild has
-to enable: git carries the unit files but not the enablement links, and
-`host-apply` opens the directory named after the machine (`hostnamectl --static`).
+to enable: git carries the unit files this machine declares but not the
+enablement links, and `host-apply` opens the directory named after the machine
+(`hostnamectl --static`).
 A restore by hand links that name to the tracked declaration — `ln -s HOSTNAME
 ~/.config/hosts/$(hostnamectl --static)` — which is the command under
 [The placeholders in the tracked set](#the-placeholders-in-the-tracked-set). Two
@@ -243,9 +252,11 @@ order of how much they matter:
    binds, the idle timers, the units and the environment snippets. A different
    home directory means editing those, or substituting them at install time the
    way the shell's `setup.sh` does for its own units.
-2. **Project-independent units.** Several units exec scripts from the shell's own
-   tree (the other repository). Without that tree they install and then fail; drop
-   them.
+2. **Units.** The units carried here run this machine's own scripts — the
+   rotation helper, the key refresher, the wallpaper applier — plus a packaged
+   binary and the patch applier under `~/.pi/`. Replace or drop the ones whose
+   script the new machine does not have; the shell's own units are not carried
+   here at all and arrive only with its `setup.sh`.
 3. **Host-specific hardware.** `.config/hosts/<machine>/` declares the rotation,
    sleep-inhibit, Bluetooth and fan units for one laptop, and its `root/` tree
    mirrors files into `/etc` and `/usr/local`. Replace the directory, keep the
@@ -255,9 +266,10 @@ order of how much they matter:
    wherever a route has no stored volume, and each device's own level afterwards
    is WirePlumber's state. The keyboard script targets an ASUS model, so it can
    be deleted on hardware that is not that laptop.
-5. **Everything requiring the shell.** The tinshell config in `.config/tinshell/`,
-   its units, and the `~/.local/bin` scripts that call `tinshell-route` do nothing
-   without that project installed.
+5. **Everything requiring the shell.** The live config in `.config/tinshell/`,
+   the unit names `host.conf` enables, and the `~/.local/bin` scripts that call
+   `tinshell-route` do nothing without that project installed; its own units and
+   its promptd clients reach this home only through its `setup.sh`.
 
 ## Checks
 

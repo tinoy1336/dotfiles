@@ -9,5 +9,4 @@
 .local/bin/cli-keys:SC2174
 .local/bin/fix-asus-kbd:SC2318
 .local/bin/fix-asus-kbd:SC2034
-.local/bin/prompt:SC2034
 .local/bin/sudo:SC2199

@@ -156,8 +156,8 @@ fragment from its template and links this machine's name to the host declaration
 `--no-substitute` writes the tracked content exactly as committed and creates
 neither, for a reader who would rather do both by hand.
 
-In practice, past what the installer does: drop the units that exec scripts from
-the shell's own tree, and replace or delete the device rules that name hardware the
-new machine does not have. Keep the whitelist direction of `.gitignore` and the
+In practice, past what the installer does: drop the units whose script the new
+machine does not have, and replace or delete the device rules that name hardware it
+does not have. Keep the whitelist direction of `.gitignore` and the
 wrapper — both exist because the work tree is a live system, and both stop
 working the moment the git directory moves inside it.
