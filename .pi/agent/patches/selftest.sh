@@ -4,13 +4,16 @@
 # Scenario 1 (failure containment): a target whose surrounding code has moved must
 #   fail loudly, exit non-zero, write the failure record, and leave every file
 #   byte-identical.
-# Scenario 2 (post-update recovery): pristine copies of both packages must be
-#   patched to bytes identical to the installed patched files, for every entry the
+# Scenario 2 (post-update recovery): pristine copies of every mirrored package must
+#   be patched to bytes identical to the installed patched files, for every entry the
 #   manifest registers. The mirror's manifest is built from the real one (names,
 #   patch paths and marker specs; only the package directory is redirected), and its
 #   file tree is seeded from the per-version pre-patch copies, so a newly registered
 #   patch has to be mirrored here to be covered — the guard reports the mismatch when
-#   it is not.
+#   it is not. A pre-patch copy that is not the packaged bytes of ITS version (a copy
+#   of the previous version carried forward for a file assumed unchanged) fails here
+#   as a mismatch against the installed file, which is the point: the seed has to be
+#   the bytes the package shipped, not the bytes the previous one did.
 #
 # The test writes its own log and failure record into a temporary directory, so the
 # real apply.log and FAILED are untouched, and package files outside the temporary
@@ -22,6 +25,8 @@ APPLIER="$ROOT/apply-patches.sh"
 NPM=/home/tinoy/.pi/agent/npm/node_modules
 TODO_PKG="$NPM/@juicesharp/rpiv-todo"
 SUB_PKG="$NPM/pi-subagents"
+COST_PKG="$NPM/@tinoy/pi-deepseek-cost"
+FLEET_PKG="$NPM/@tinoy/pi-fleet"
 FIXTURES="$ROOT"
 
 # The mirror is seeded from the per-version pre-patch copies — the bytes the installed
@@ -33,6 +38,8 @@ pkg_version() { # package dir -> its package.json version
 }
 TODO_SEED_VERSION="$(pkg_version "$TODO_PKG")"
 SUB_SEED_VERSION="$(pkg_version "$SUB_PKG")"
+COST_SEED_VERSION="$(pkg_version "$COST_PKG")"
+FLEET_SEED_VERSION="$(pkg_version "$FLEET_PKG")"
 
 SEED_FILES=(
 	"$FIXTURES/rpiv-todo/pre-patch/index.ts.$TODO_SEED_VERSION"
@@ -45,6 +52,8 @@ SEED_FILES=(
 	"$FIXTURES/pi-subagents/pre-patch/execution.js.$SUB_SEED_VERSION"
 	"$FIXTURES/pi-subagents/pre-patch/subagent-runner.js.$SUB_SEED_VERSION"
 	"$FIXTURES/pi-subagents/pre-patch/worker.md.$SUB_SEED_VERSION"
+	"$FIXTURES/deepseek-cost/pre-patch/index.ts.$COST_SEED_VERSION"
+	"$FIXTURES/fleet-output-discipline/pre-patch/section.ts.$FLEET_SEED_VERSION"
 )
 SEEDS_MISSING=""
 for seed in "${SEED_FILES[@]}"; do
@@ -71,7 +80,7 @@ run_applier() { # manifest -> stdout captured by the caller
 # Entries scenario 2 mirrors, in the order the applier is to apply them. The list is
 # this test's coverage: every entry the manifest registers for a package named here
 # must appear, checked by the guard below.
-MIRROR_ENTRIES="rpiv-todo-external-refresh pi-subagents-label-display pi-subagents-worker-board-name pi-subagents-resume-label pi-subagents-pause-aware-control"
+MIRROR_ENTRIES="rpiv-todo-external-refresh pi-subagents-label-display pi-subagents-worker-board-name pi-subagents-resume-label pi-subagents-pause-aware-control deepseek-cost-two-unit-countdown fleet-output-discipline"
 
 manifest_field() { # entry-name field-number
 	awk -F'\t' -v n="$1" -v f="$2" '!/^#/ && $1 == n { print $f }' "$ROOT/managed-patches.conf"
@@ -86,7 +95,7 @@ mirror_conf_line() { # entry-name -> its manifest line with the package director
 
 # --- scenario 1: a moved target -------------------------------------------------
 if [ -n "$SEEDS_MISSING" ]; then
-	no "pristine seeds missing for the installed versions (rpiv-todo $TODO_SEED_VERSION, pi-subagents $SUB_SEED_VERSION):$SEEDS_MISSING — run apply-patches.sh once after the update, then re-run this test"
+	no "pristine seeds missing for the installed versions (rpiv-todo $TODO_SEED_VERSION, pi-subagents $SUB_SEED_VERSION, deepseek-cost $COST_SEED_VERSION, pi-fleet $FLEET_SEED_VERSION):$SEEDS_MISSING — run apply-patches.sh once after the update, then re-run this test"
 	printf '\n%s: %s passed, %s failed\n' "$(basename "$0")" "$pass" "$fail"
 	exit 1
 fi
@@ -130,7 +139,7 @@ fi
 # One seed per target file of every mirrored entry: the pre-patch copy of the version
 # the applier would find installed. The packages ship compiled .js sources, so the
 # seeds (and the comparison below) name the .js files the patches and the markers do.
-mkdir -p "$WORK/mirror/@juicesharp/rpiv-todo" "$WORK/mirror/pi-subagents/src/extension" \
+mkdir -p "$WORK/mirror/@juicesharp/rpiv-todo" "$WORK/mirror/@tinoy/pi-deepseek-cost" "$WORK/mirror/@tinoy/pi-fleet" "$WORK/mirror/pi-subagents/src/extension" \
 	"$WORK/mirror/pi-subagents/src/runs/background" "$WORK/mirror/pi-subagents/src/runs/foreground" \
 	"$WORK/mirror/pi-subagents/src/runs/shared" "$WORK/mirror/pi-subagents/src/tui" "$WORK/mirror/pi-subagents/agents"
 cp -p "$FIXTURES/rpiv-todo/pre-patch/index.ts.$TODO_SEED_VERSION" "$WORK/mirror/@juicesharp/rpiv-todo/index.ts"
@@ -145,6 +154,10 @@ cp -p "$FIXTURES/pi-subagents/pre-patch/subagent-runner.js.$SUB_SEED_VERSION" "$
 cp -p "$FIXTURES/pi-subagents/pre-patch/worker.md.$SUB_SEED_VERSION" "$WORK/mirror/pi-subagents/agents/worker.md"
 cp -p "$TODO_PKG/package.json" "$WORK/mirror/@juicesharp/rpiv-todo/package.json"
 cp -p "$SUB_PKG/package.json" "$WORK/mirror/pi-subagents/package.json"
+cp -p "$FIXTURES/deepseek-cost/pre-patch/index.ts.$COST_SEED_VERSION" "$WORK/mirror/@tinoy/pi-deepseek-cost/index.ts"
+cp -p "$COST_PKG/package.json" "$WORK/mirror/@tinoy/pi-deepseek-cost/package.json"
+cp -p "$FIXTURES/fleet-output-discipline/pre-patch/section.ts.$FLEET_SEED_VERSION" "$WORK/mirror/@tinoy/pi-fleet/section.ts"
+cp -p "$FLEET_PKG/package.json" "$WORK/mirror/@tinoy/pi-fleet/package.json"
 for name in $MIRROR_ENTRIES; do mirror_conf_line "$name"; done > "$WORK/mirror.conf"
 
 # Coverage guard: the mirror must cover every entry the manifest registers for the
@@ -184,7 +197,9 @@ for pair in \
 	"$WORK/mirror/pi-subagents/src/runs/foreground/execution.js:$SUB_PKG/src/runs/foreground/execution.js" \
 	"$WORK/mirror/pi-subagents/src/runs/background/subagent-runner.js:$SUB_PKG/src/runs/background/subagent-runner.js" \
 	"$WORK/mirror/pi-subagents/agents/worker.md:$SUB_PKG/agents/worker.md" \
-	"$WORK/mirror/pi-subagents/src/tui/render.js:$SUB_PKG/src/tui/render.js"; do
+	"$WORK/mirror/pi-subagents/src/tui/render.js:$SUB_PKG/src/tui/render.js" \
+	"$WORK/mirror/@tinoy/pi-deepseek-cost/index.ts:$COST_PKG/index.ts" \
+	"$WORK/mirror/@tinoy/pi-fleet/section.ts:$FLEET_PKG/section.ts"; do
 	mirror="${pair%%:*}"
 	installed="${pair#*:}"
 	if [ "$(hash "$mirror")" = "$(hash "$installed")" ]; then

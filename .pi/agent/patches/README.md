@@ -1,6 +1,7 @@
 # Local package patches
 
-Two npm-managed packages under `~/.pi/agent/npm/node_modules` carry local patches. npm owns
+Three npm-managed packages under `~/.pi/agent/npm/node_modules` carry local patches, and a
+fourth — `@tinoy/pi-fleet` — carries the tightened foreman discipline section. npm owns
 those directories and rewrites them on every install or update, which deletes the patches;
 this directory is the source of truth and `apply-patches.sh` restores the patched state
 afterwards. The applier does not take ownership of the packages: it re-applies a patch,
@@ -13,9 +14,16 @@ under a clean dry run, and leaves a rollback copy behind.
 | `pi-subagents/worker-board-name.patch` | `pi-subagents` | `agents/worker.md` | the worker agent's own definition tells it to name every shared-board todo entry it writes (`<name>: <imperative subject>`) |
 | `pi-subagents/resume-label-forward.patch` | `pi-subagents` | `src/extension/rpc.js`, `src/runs/foreground/subagent-executor.js` | a warm-reused (resumed) run keeps its crew name: the resume RPC normaliser forwards the caller's `label` and the revive call puts it on the revived step, so the async-agents row reads `carol` after `fleet assign` instead of the bare agent type |
 | `pi-subagents/pause-aware-control.patch` | `pi-subagents` | `src/runs/shared/subagent-control.js`, `src/runs/foreground/execution.js`, `src/runs/background/subagent-runner.js` | a machine-wide pause no longer reads as a hang: while the pause library reports an active pause the control watchdog counts its inactivity signals instead of notifying per run, and reports ONE aggregated line per affected run once the pause is over |
+| `deepseek-cost/two-unit-countdown.patch` | `@tinoy/pi-deepseek-cost` | `index.ts` | the footer countdown shows up to two units (`1d 3h`, `11h 5m`, `53m 4s`, `38s`) instead of one, dropping the second unit when it is zero, so an interval with hours left no longer loses its minutes |
+| `fleet-output-discipline/output-discipline.patch` | `@tinoy/pi-fleet` | `section.ts` | the foreman discipline section requires a landing bullet or no text at all, forbids the placeholder token and the turn that ends on a reasoning block alone, and requires prose whenever the requester asks a question, requests a plan, an explanation or an opinion, or reports a defect |
 
 Each patch directory has its own README (what the patch changes, probes, offline rig) and
 `pre-patch/` with byte-identical copies of its targets as packaged, keyed by package version.
+A copy must be the packaged bytes of its OWN version: a file that did not change between two
+versions may legitimately carry the same bytes, but a copy made by copying the previous
+version's — the shortcut for a file assumed unchanged — is a claim `selftest.sh` checks
+against the installed tree, so it is written from the tarball the version was installed from
+rather than assumed. A stale copy also makes a rollback restore the wrong bytes.
 
 ## The applier
 
@@ -75,7 +83,7 @@ run produces one notification.
 |---|---|
 | `apply-patches.sh` | the applier |
 | `managed-patches.conf` | which patches to keep applied, and their marker specs |
-| `selftest.sh` | self-test: a moved target must fail safely, and every entry the manifest registers for the mirrored packages must patch a pristine mirror to the installed bytes (the mirror's manifest is built from `managed-patches.conf`, the mirror is seeded from the installed version's pre-patch copies, a missing seed stops the test and names the version, and a guard fails when a registered entry is not mirrored) |
+| `selftest.sh` | self-test: a moved target must fail safely, and every entry the manifest registers for the mirrored packages (`@juicesharp/rpiv-todo`, `pi-subagents`, `@tinoy/pi-deepseek-cost`, `@tinoy/pi-fleet`) must patch a pristine mirror to the installed bytes (the mirror's manifest is built from `managed-patches.conf`, the mirror is seeded from the installed version's pre-patch copies, a missing seed stops the test and names the version, and a guard fails when a registered entry is not mirrored) |
 | `doctor.sh` | the pi toolchain check the applier ends every run with, so the existing trigger also covers it: `HOST` (the `pi` on PATH resolved to the package that owns it, with that package's version — two installs with two owners is the failure class), `RUNNER` (the async runner's module graph imported in Node through the same preload the spawned child uses, which fails on a peer export the installed `@earendil-works/pi-ai` no longer provides) and `PATCHES` (every manifest marker re-grepped against the installed files). Silent and exit 0 while healthy; a failure prints the check, notifies once with the fix command and exits 1. `-v` prints the whole report for a hand run |
 | `apply.log` | append-only record of every run, with dry-run output on failure (trimmed to the last 1000 lines past 2000) |
 | `FAILED` | present only while the last run had a failure |
@@ -100,13 +108,26 @@ Per entry: `patch -p1 -R -d <package-dir> < <patch>` removes the patch, or copy
 `pre-patch/<name>.<version>` back over the target file. Both leave the package exactly as
 npm unpacked it.
 
+An entry covers every file its patch names, so restoring one target of a multi-file entry
+does not make the entry readable as "not applied" in a useful way: the applier then dry-runs
+clean, stages a copy of every target, and refuses (the staged run reports a marker absent)
+because the targets that are still patched reverse instead of applying. That refusal is safe
+and leaves the package byte-identical, but it is not a repair — restore ALL targets of the
+entry (or none of them) from their pre-patch copies, then run the applier once to re-apply it.
+
 ## The trigger
 
 Two systemd user units, in `~/.config/systemd/user/`:
 
 - `pi-patch-apply.path` — watches `~/.pi/agent/npm/node_modules`, its `@juicesharp`
-  subdirectory and both package directories (`PathModified`). npm rewriting a package
-  changes those directory mtimes, which fires the service.
+  subdirectory and the package directories whose patches it manages (`PathModified`):
+  `@juicesharp/rpiv-todo` and `pi-subagents` today. npm rewriting a package changes those
+  directory mtimes, which fires the service. A patched package whose directory is absent from
+  that list is restored only by a hand run of `apply-patches.sh`:
+  `@tinoy/pi-deepseek-cost` and, until the changed section is published, `@tinoy/pi-fleet`
+  are in that position — their manifest entries and patch directories exist, their watch
+  entries do not, so a rewrite of either lands unpatched until the directory is added to the
+  unit and the unit is reloaded.
 - `pi-patch-apply.service` — `Type=oneshot`, `ExecStart=apply-patches.sh`,
   `WantedBy=default.target` so it also runs at login/boot, `TimeoutStartSec=240` so a run
   has room for the install-in-flight retries and the doctor while still being unable to
