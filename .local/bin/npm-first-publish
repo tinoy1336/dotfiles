@@ -1,0 +1,445 @@
+#!/usr/bin/env bash
+# npm-first-publish — publish the FIRST version of a package name the registry does not have yet.
+#
+# A brand-new name can only be created by an interactive publish: a fine-grained access token is
+# refused with a masked 404 when the call has to create a name, and staged publishing requires the
+# package to exist already. So this helper performs the pre-flights locally, skips every name the
+# registry already resolves, logs in ONCE with a web login into a scratch npm config, issues every
+# PUT back to back, and only then verifies — a web-login credential lives only a few minutes, so no
+# step between the login and the last upload may wait on a human. Verifying between uploads would
+# spend that window on backoff sleeps.
+#
+# Why each guard exists:
+# - npm_config_userconfig governs config READ and WRITE, so the login lands in the scratch file and
+#   $HOME/.npmrc is never read or written; its sha256 is asserted on every exit path.
+# - An ambient NPM_TOKEN / NODE_AUTH_TOKEN / NPM_CONFIG__AUTH overrides the scratch credential and
+#   would silently publish with the wrong one, so its presence refuses the run up front.
+# - npm runs its OTP approval flow only when stdin AND stdout are TTYs (npm/lib/utils/auth.js
+#   otherwise rethrows the EOTP challenge and the auth URL is masked in the log), so each publish
+#   runs under `script -qec` when this helper has a TTY, and under a plain redirect otherwise.
+# - --fetch-retries=0 bounds one publish to a single PUT; without it npm retries the PUT itself and
+#   one invocation spends several requests against the account's publish limiter.
+# - The registry can answer a stale 404 for a packument GET for minutes after a successful publish,
+#   so the authoritative evidence is the digest of the tarball downloaded back from the registry,
+#   matched against the digest npm printed for the upload. npm elides the integrity value in its own
+#   output, so the sha1 line is the digest that comparison uses; with no digest to compare the
+#   verdict is UNCOMPARED and the run is not reported as verified.
+# - A target directory's own .npmrc is PROJECT config: npm reads it from the publish cwd and it
+#   outranks the scratch user config, so a target that carries one is refused before anything runs.
+# - The registry name is read from <dir>/package.json with python3: `npm pkg get name` answers the
+#   name twice when the directory sits inside a workspace root.
+# - A pty transcript carries ANSI escapes and npm's spinner characters, so digests are parsed out of
+#   the log only after both are stripped.
+
+set -uo pipefail
+
+REG=https://registry.npmjs.org/
+LOGDIR=/tmp/npm-first-publish-logs
+REAL="${HOME}/.npmrc"
+
+usage() {
+  cat <<'EOF'
+npm-first-publish [--dry-run] [<package-dir>...]
+
+Publishes the first version of every named package directory whose registry name does not resolve
+yet, from one short-lived interactive web login into a scratch npm config. With no directory
+argument it operates on the package in the current directory.
+
+  --dry-run   local pre-flight and registry skip check only: no login, no PUT.
+
+Exit codes
+  0  every target was already published (skipped), or published and digest-verified
+  1  usage or environment error (unreadable package.json, target carries its own .npmrc, ambient
+     credential set, login failed)
+  2  npm reported success but the publish is not verified: tarball digest mismatch, tarball
+     unfetchable, or no expected digest available to compare (UNCOMPARED)
+  3  pre-flight refused: the tarball would carry an unexpected file
+  4  rate limited (429) — the account is inside its publish limit
+  5  authorization-shaped refusal (404)
+  6  authentication refusal (401 or EOTP)
+  7  other publish failure
+  8  $HOME/.npmrc changed during the run
+EOF
+}
+
+sha_of() {
+  if [ -f "$1" ]; then sha256sum "$1" | cut -c1-64; else echo absent; fi
+}
+
+pkgfile() { local s=${1#@}; printf '%s' "${s//\//-}"; }
+
+DRY=0
+TARGETS=()
+for arg in "$@"; do
+  case "$arg" in
+    --dry-run) DRY=1 ;;
+    -h|--help) usage; exit 0 ;;
+    -*) echo "STOP: unknown option '$arg'."; usage >&2; exit 1 ;;
+    *) TARGETS+=("$arg") ;;
+  esac
+done
+[ "${#TARGETS[@]}" -gt 0 ] || TARGETS=(".")
+
+BEFORE=$(sha_of "$REAL")
+SCRATCH=""
+CFG=""
+
+cleanup() {
+  rc=$?
+  if [ -n "$SCRATCH" ]; then
+    if [ -e "$CFG" ]; then shred -u "$CFG" 2>/dev/null || rm -f "$CFG"; fi
+    rm -rf "$SCRATCH"
+  fi
+  AFTER=$(sha_of "$REAL")
+  if [ "$BEFORE" != "$AFTER" ]; then
+    echo "!! ABORT-CHECK: $REAL CHANGED during this run — it must not have"
+    rc=8
+  else
+    echo "== $REAL untouched (sha256 $(printf %s "$AFTER" | cut -c1-16)...)"
+  fi
+  if [ -n "$SCRATCH" ]; then
+    echo "== scratch credential shredded: $([ -e "$CFG" ] && echo STILL-PRESENT || echo gone)"
+    echo "== scratch dir removed: $([ -e "$SCRATCH" ] && echo STILL-PRESENT || echo gone)"
+  else
+    echo "== no scratch config was created"
+  fi
+  exit "$rc"
+}
+trap cleanup EXIT
+
+# an ambient credential would override the scratch config without saying so
+for v in NPM_TOKEN NODE_AUTH_TOKEN NPM_CONFIG__AUTH; do
+  if [ -n "$(printenv "$v" 2>/dev/null)" ]; then
+    echo "STOP: ambient $v is set; it would override the scratch credential. Nothing attempted."
+    exit 1
+  fi
+done
+
+DIRS=(); NAMES=(); VERS=()
+for t in "${TARGETS[@]}"; do
+  if [ ! -d "$t" ]; then echo "STOP: '$t' is not a directory."; exit 1; fi
+  dir=$(cd "$t" && pwd -P) || { echo "STOP: cannot resolve '$t'."; exit 1; }
+  if [ ! -f "$dir/package.json" ]; then echo "STOP: no package.json in $dir."; exit 1; fi
+  # npm reads <dir>/.npmrc as project config from the publish cwd, and project config outranks the
+  # scratch user config — a foreign registry credential there would publish silently
+  if [ -e "$dir/.npmrc" ]; then
+    echo "STOP: $dir carries its own .npmrc. npm reads it as project config, which outranks the"
+    echo "      scratch user config, so the publish could run on whatever credential it holds."
+    echo "      Move it out of the way first. Nothing attempted."
+    exit 1
+  fi
+  meta=$(python3 - "$dir/package.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+try:
+    d = json.load(open(p))
+except Exception as exc:
+    sys.exit("STOP: %s is not readable JSON: %s" % (p, exc))
+n = str(d.get("name") or "").strip()
+v = str(d.get("version") or "").strip()
+if not n:
+    sys.exit('STOP: %s declares no "name"' % p)
+print(n)
+print(v)
+PY
+) || exit 1
+  name=$(printf '%s\n' "$meta" | sed -n '1p')
+  ver=$(printf '%s\n' "$meta" | sed -n '2p')
+  [ -n "$name" ] || { echo "STOP: could not read a name from $dir/package.json."; exit 1; }
+  DIRS+=("$dir"); NAMES+=("$name"); VERS+=("$ver")
+done
+
+if [ "$DRY" -eq 0 ]; then mkdir -p "$LOGDIR"; fi
+
+# 1. pre-flight every package locally, before any credential exists
+echo "== pre-flight (local, no upload) =="
+for i in "${!DIRS[@]}"; do
+  pack=$(cd "${DIRS[$i]}" && npm pack --dry-run --registry="$REG" 2>&1)
+  if [ "$DRY" -eq 0 ]; then printf '%s\n' "$pack" > "$LOGDIR/pack-$(printf '%02d' "$i")-$(pkgfile "${NAMES[$i]}").txt"; fi
+  echo "--- ${NAMES[$i]}@${VERS[$i]} (${DIRS[$i]})"
+  listing=$(printf '%s\n' "$pack" | sed -n '/Tarball Contents/,/Tarball Details/p')
+  if [ -z "$listing" ]; then
+    echo "STOP: pre-flight for ${NAMES[$i]} produced no tarball listing; nothing was published."
+    printf '%s\n' "$pack" | tail -5
+    exit 1
+  fi
+  printf '%s\n' "$listing"
+  # npm never packs a .npmrc, so a stray one cannot show up in this listing; the target's own
+  # .npmrc is refused up front instead, because it acts as project config at publish time
+  bad=$(printf '%s\n' "$listing" \
+        | grep -E '\.pem$|\.key$|\.p12$|\.pfx$|\.pub$|\.secret($|\.)|id_rsa|id_ecdsa|id_dsa|id_ed25519|node_modules/|\.log$|\.orig$|\.bak$|\.env($|\.)|~|\.DS_Store' || true)
+  if [ -n "$bad" ]; then
+    echo "STOP: pre-flight for ${NAMES[$i]} listed unexpected file(s):"
+    printf '%s\n' "$bad"
+    echo "No login was made and nothing was uploaded."
+    exit 3
+  fi
+done
+echo "== pre-flight clean: no stray file would be packed =="
+
+# 2. a name that already resolves needs no PUT — republishing spends the limiter for nothing
+echo "== registry skip check =="
+PENDING=()
+for i in "${!DIRS[@]}"; do
+  name=${NAMES[$i]}
+  raw=$(npm view "$name" version --registry="$REG" 2>&1); rcv=$?
+  if [ "$rcv" -eq 0 ] && [ -n "$raw" ]; then
+    echo "== $name already published (registry reads $(printf '%s' "$raw" | tail -1), local ${VERS[$i]}) — skipping"
+  elif printf '%s' "$raw" | grep -qE 'E404|404 Not Found'; then
+    echo "== $name is free on the registry — pending"
+    PENDING+=("$i")
+  else
+    echo "STOP: the registry read for $name failed and the answer was not a 404:"
+    printf '%s\n' "$raw" | tail -3
+    exit 1
+  fi
+done
+
+if [ "${#PENDING[@]}" -eq 0 ]; then
+  echo "== nothing left to publish — no login was made and no PUT was spent"
+  exit 0
+fi
+
+if [ "$DRY" -eq 1 ]; then
+  echo "== dry-run: ${#PENDING[@]} package(s) would be published after one interactive web login"
+  for i in "${PENDING[@]}"; do
+    echo "   would run: (cd '${DIRS[$i]}' && npm publish --access public --fetch-retries=0 --registry=$REG)"
+  done
+  echo "== dry-run: no login, no PUT"
+  exit 0
+fi
+
+# 3. scratch config, created fresh so no earlier credential can be reused
+SCRATCH=$(mktemp -d /tmp/npm-first-publish-XXXXXX) || exit 1
+chmod 700 "$SCRATCH"
+CFG="$SCRATCH/.npmrc"
+: > "$CFG"
+chmod 600 "$CFG"
+export npm_config_userconfig="$CFG"
+
+echo "== config resolution =="
+npm config list 2>&1 | sed -n '1,2p'
+echo
+echo "== web login: approve in the browser; npm prints a URL and may open it =="
+npm login --auth-type=web --registry="$REG"
+rc=$?
+if [ "$rc" -ne 0 ]; then
+  echo "STOP: npm login failed (exit $rc). Nothing was published."
+  exit 1
+fi
+WHO=$(npm whoami --registry="$REG" 2>&1); rc=$?
+if [ "$rc" -ne 0 ] || [ -z "$WHO" ] || printf '%s' "$WHO" | grep -qE 'need auth|ENEEDAUTH|E401'; then
+  echo "STOP: npm whoami answered '$WHO'. No usable credential; nothing published."
+  exit 1
+fi
+python3 - "$CFG" <<'PY'
+import hashlib, re, sys
+try:
+    t = open(sys.argv[1]).read()
+except OSError:
+    t = ""
+m = re.search(r"_authToken=(\S+)", t)
+if m:
+    v = m.group(1)
+    print("== credential in scratch config: present, len %d, sha256[:8] %s"
+          % (len(v), hashlib.sha256(v.encode()).hexdigest()[:8]))
+else:
+    print("== credential in scratch config: ABSENT")
+PY
+echo "== authenticated as $WHO — uploading now, no step in between =="
+
+digest_from_log() {
+  python3 - "$1" <<'PY'
+import re, sys
+t = open(sys.argv[1], "rb").read().decode("utf-8", "replace")
+t = re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", t)          # CSI sequences
+t = "".join(c for c in t if c == "\n" or (" " <= c <= "~"))  # spinner glyphs and control bytes
+m1 = re.search(r"shasum:\s*([0-9a-f]{40})", t)
+m2 = re.search(r"integrity:\s*(sha512-[A-Za-z0-9+/]{86}==)", t)  # only unelided output matches
+print(m1.group(1) if m1 else "")
+print(m2.group(1) if m2 else "")
+PY
+}
+
+verify_tarball() {
+  # $1 name  $2 version  $3 sha1 from the publish output (may be empty)  $4 integrity suffix
+  # returns 0 MATCH, 1 MISMATCH, 2 UNFETCHED, 3 UNCOMPARED (identity only, no digest to compare)
+  python3 - "$REG${1//\//%2f}/-/${1##*/}-$2.tgz" "$1" "$2" "$3" "$4" <<'PY'
+import base64, hashlib, json, sys, tarfile, time, urllib.error, urllib.request
+url, name, ver, want1, want512 = sys.argv[1:6]
+data = None
+failure = ""
+for delay in (0, 3, 6, 12, 20):
+    if delay:
+        time.sleep(delay)
+    try:
+        with urllib.request.urlopen(url, timeout=60) as r:
+            data = r.read()
+        break
+    except urllib.error.HTTPError as exc:
+        failure = "HTTP %d" % exc.code
+        if exc.code not in (404, 408, 429) and exc.code < 500:
+            break
+    except Exception as exc:
+        failure = str(exc)
+if data is None:
+    print("could not fetch the published tarball: %s" % failure)
+    print("VERDICT UNFETCHED")
+    sys.exit(2)
+
+s1 = hashlib.sha1(data).hexdigest()
+s512 = "sha512-" + base64.b64encode(hashlib.sha512(data).digest()).decode()
+print("== published tarball: %s (%d bytes)" % (url.rsplit("/", 1)[-1], len(data)))
+print("== sha1 %s" % s1)
+compared = bool(want1 or want512)
+ok = True
+if want1:
+    hit = s1 == want1.lower()
+    print("== sha1 vs publish output: %s" % ("MATCH" if hit else "MISMATCH (publish output says %s)" % want1))
+    ok = ok and hit
+if want512:
+    hit = s512 == want512
+    print("== sha512 integrity vs publish output: %s" % ("MATCH" if hit else "MISMATCH"))
+    ok = ok and hit
+elif not compared:
+    print("== sha512 integrity vs publish output: unavailable (npm elides the integrity value in its own output)")
+import io
+try:
+    with tarfile.open(fileobj=io.BytesIO(data)) as t:
+        inner = json.load(t.extractfile("package/package.json"))
+except Exception as exc:
+    print("== inner package.json unreadable: %s" % exc)
+    print("VERDICT MISMATCH")
+    sys.exit(1)
+identity = str(inner.get("name")) == name and str(inner.get("version")) == ver
+print("== tarball identity: %s@%s %s" % (inner.get("name"), inner.get("version"), "MATCH" if identity else "MISMATCH"))
+if not identity or not ok:
+    print("VERDICT MISMATCH")
+    sys.exit(1)
+if not compared:
+    print("VERDICT UNCOMPARED")
+    sys.exit(3)
+print("VERDICT MATCH")
+sys.exit(0)
+PY
+}
+
+# 4. every PUT first, back to back: the login credential lives only a few minutes, so no step
+#    between two uploads may wait on anything — verification runs after the last upload
+PUBLISHED=()
+LOGS=()
+for i in "${PENDING[@]}"; do
+  name=${NAMES[$i]}; ver=${VERS[$i]}; dir=${DIRS[$i]}
+  log="$LOGDIR/publish-$(printf '%02d' "$i")-$(pkgfile "$name").log"
+  LOGS[$i]="$log"
+  dq=${dir//\'/\'\\\'\'}
+  echo
+  echo "===== publish $name@$ver (one PUT; can take up to ~80 s) ====="
+  if [ -t 0 ] && [ -t 1 ]; then
+    script -qec "cd '$dq' && npm publish --access public --fetch-retries=0 --registry='$REG'" "$log"
+    rc=$?
+  else
+    ( cd "$dir" && npm publish --access public --fetch-retries=0 --registry="$REG" ) > "$log" 2>&1
+    rc=$?
+  fi
+  tail -12 "$log"
+
+  if [ "$rc" -ne 0 ]; then
+    if grep -qE 'EPUBLISHCONFLICT|cannot publish over the previously published' "$log"; then
+      echo "RESULT $name: already published — continuing"
+      continue
+    fi
+    if grep -qE 'E429|429 Too Many Requests' "$log"; then
+      echo "RESULT $name: RATE LIMITED (429) — the account is inside a publish rate limit."
+      echo "  STOP: no retry, no second package, no credential switch. Log $log"
+      exit 4
+    fi
+    if grep -qE 'E404|404 Not Found' "$log"; then
+      echo "RESULT $name: REFUSED 404 (authorization-shaped, not rate limiting)."
+      echo "  STOP: no credential on this machine can create the name. Browser reads:"
+      echo "   1. https://www.npmjs.com -> profile -> Access Tokens -> the token's Packages and scopes"
+      echo "   2. https://www.npmjs.com/org/<org> -> Members / Packages -> token publishing policy"
+      echo "   3. https://www.npmjs.com/settings/<user>/profile -> two-factor section"
+      echo "  Log $log"
+      exit 5
+    fi
+    if grep -qE 'E401|401 Unauthorized|EOTP|one-time pass' "$log"; then
+      echo "RESULT $name: AUTH refusal (401 or OTP) — the credential was refused before publish."
+      echo "  STOP: nothing published; log $log"
+      exit 6
+    fi
+    echo "RESULT $name: other failure (npm exit $rc); full log $log"
+    exit 7
+  fi
+  echo "== $name@$ver: PUT returned 0 — verified after the last upload"
+  PUBLISHED+=("$i")
+done
+
+# 5. proof, once every PUT has been issued: the digest npm printed for the upload, matched against
+#    the tarball the registry serves now
+if [ "${#PUBLISHED[@]}" -gt 0 ]; then
+  echo
+  echo "== verifying from the published tarballs =="
+fi
+for i in "${PUBLISHED[@]}"; do
+  name=${NAMES[$i]}; ver=${VERS[$i]}; log=${LOGS[$i]}
+  digests=$(digest_from_log "$log")
+  sha1=$(printf '%s\n' "$digests" | sed -n '1p')
+  integ=$(printf '%s\n' "$digests" | sed -n '2p')
+  if [ -z "$sha1" ] && [ -z "$integ" ]; then
+    dist=$(npm view "$name@$ver" dist --json --registry="$REG" 2>/dev/null)
+    if [ -n "$dist" ]; then
+      sha1=$(printf '%s' "$dist" | python3 -c 'import json,sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    d = {}
+print(d.get("shasum", "") or "")' 2>/dev/null)
+      integ=$(printf '%s' "$dist" | python3 -c 'import json,sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    d = {}
+print(d.get("integrity", "") or "")' 2>/dev/null)
+    fi
+  fi
+
+  vrc_verify=0
+  verify_tarball "$name" "$ver" "$sha1" "$integ" || vrc_verify=$?
+  if [ "$vrc_verify" -eq 3 ]; then
+    echo "RESULT $name: UNCOMPARED — npm exit 0 and the tarball identity matches, but no expected"
+    echo "  digest was readable, so this upload is NOT verified. Log $log"
+    exit 2
+  fi
+  if [ "$vrc_verify" -ne 0 ]; then
+    if [ "$vrc_verify" -eq 2 ]; then
+      echo "RESULT $name: npm exit 0 but the published tarball could not be fetched — UNCONFIRMED."
+    else
+      echo "RESULT $name: npm exit 0 but the published tarball did not verify — see the log."
+    fi
+    echo "  Log $log"
+    exit 2
+  fi
+
+  # the packument read lags the write, so retry it with backoff and never call a 404 a failure
+  read_ver=""
+  for delay in 0 5 10 15 20 30 30; do
+    [ "$delay" -gt 0 ] && sleep "$delay"
+    read_ver=$(npm view "$name@$ver" version --registry="$REG" 2>/dev/null)
+    [ -n "$read_ver" ] && break
+  done
+  if [ -n "$read_ver" ]; then
+    echo "RESULT $name: PUBLISHED — tarball digest matches the publish output; registry reads $read_ver"
+  else
+    echo "RESULT $name: PUBLISHED — tarball digest matches the publish output (the packument read still lags)"
+  fi
+done
+
+if [ "${#PUBLISHED[@]}" -eq 0 ]; then
+  echo
+  echo "== nothing was uploaded: every remaining name already existed"
+  exit 0
+fi
+echo
+echo "== done: ${#PUBLISHED[@]} package(s) published and digest-verified"
+exit 0
