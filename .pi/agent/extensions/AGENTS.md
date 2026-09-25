@@ -1025,7 +1025,7 @@ them and never named in settings.
 
 **The three package bridges.** `pi-fleet`, `pi-io-guard` and `pi-build` are
 `file:` links into the `pi-extensions` checkout — `node_modules/@tinoy/<name>` is
-a symlink to `~/dev/pi-extensions/packages/<name>` — not registry copies.
+a symlink into that checkout's `packages/<name>` — not registry copies.
 `@tinoy/pi-io-guard` was never published, so every registry route into the split
 (`pi install npm:@tinoy/pi-fleet`, `pi update --extensions`) fails on it, and the
 checkout is the only working mirror of the fixed code. The settings entries are

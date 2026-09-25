@@ -50,7 +50,7 @@ request that follows the loader's arrival or removal:
 Rebuild the pre-fix package without touching the checkout:
 
 ```sh
-git -C ~/dev/pi-extensions show ae18529^:packages/fleet/index.ts > /tmp/fleet-prefix.ts
+git -C <pi-extensions-checkout> show ae18529^:packages/fleet/index.ts > /tmp/fleet-prefix.ts
 # point a scratch copy of the installed package at that file, or run the checkout's rig
 # arm with the file restored in a /tmp copy (never in place).
 ```
