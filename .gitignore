@@ -374,7 +374,6 @@ __pycache__/
 !/.pi/agent/extensions/
 /.pi/agent/extensions/*
 !/.pi/agent/extensions/AGENTS.md
-!/.pi/agent/extensions/sudo-approve.ts
 !/.pi/agent/extensions/lib/
 !/.pi/agent/extensions/fleet/
 !/.pi/agent/extensions/io-guard/
