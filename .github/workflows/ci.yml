@@ -1,4 +1,4 @@
-# Six checks over the tracked set. Each job runs a script from .github/scripts,
+# Seven checks over the tracked set. Each job runs a script from .github/scripts,
 # so the same run is available locally before a commit.
 #
 #   shellcheck          every tracked shell script, with the findings the tree
@@ -15,6 +15,11 @@
 #                       a home the reader does not have, or a checkout path the
 #                       README does not document. Prose is read here — the other
 #                       jobs select files by extension and never open a README
+#   boundary            the membership of the tracked set: the shell's unit files
+#                       and the promptd clients it links into ~/.local/bin belong
+#                       to that project and its setup.sh, so a path from that set
+#                       appearing here again fails. Every other job reads a file's
+#                       content; this one reads whether the file is carried at all
 #   palette             every file rendered from the house palette: each template
 #                       is re-rendered and compared, and the run fails when a
 #                       committed file or its record is stale, or when the palette
@@ -94,6 +99,14 @@ jobs:
       - uses: actions/checkout@v7
       - name: Path references resolve for a reader
         run: .github/scripts/portability.sh
+
+  boundary:
+    name: boundary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: The tracked set carries no path the shell owns
+        run: .github/scripts/boundary-check.sh
 
   palette:
     name: palette

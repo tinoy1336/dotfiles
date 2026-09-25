@@ -119,6 +119,7 @@ are the same run:
 .github/scripts/restore-rehearsal.sh .
 .github/scripts/installer-smoke.sh .
 .github/scripts/portability.sh
+.github/scripts/boundary-check.sh
 ```
 
 `shellcheck.sh` lints every shell script the repository tracks. A finding fails
@@ -148,6 +149,13 @@ a home directory that is not this machine's, a checkout path the README does not
 document, or a runtime directory named by a fixed uid. Accepted references are
 recorded with their reason in `portability-allow.txt` beside it, and a record that
 no longer matches a finding is reported rather than kept.
+
+`boundary-check.sh` reads the tracked set for membership rather than content: the
+shell repository owns the unit files its `setup.sh` renders and the promptd
+clients it links into `~/.local/bin`, so a path from that set tracked here again —
+by a forced `add`, a widened `.gitignore` negation or a copy placed in one of
+those directories — fails. The other jobs each read a tracked file for what it
+says and would pass.
 
 ## Adapting the repository to another machine
 

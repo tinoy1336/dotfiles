@@ -411,7 +411,7 @@ machine writes once arrives through a restore as well.
 
 ## Checks
 
-`.github/workflows/ci.yml` runs six jobs, each of which is also a script under
+`.github/workflows/ci.yml` runs seven jobs, each of which is also a script under
 `.github/scripts/` so it can be run locally before a commit:
 
 ```sh
@@ -422,6 +422,7 @@ export GIT_DIR="$HOME/.dotfiles.git" GIT_WORK_TREE="$HOME"
 .github/scripts/restore-rehearsal.sh "$HOME/.dotfiles.git"
 .github/scripts/installer-smoke.sh .
 .github/scripts/portability.sh
+.github/scripts/boundary-check.sh
 .github/scripts/palette-check.sh <path-to-house-palette>/bin/render
 ```
 
@@ -439,6 +440,13 @@ second run writes nothing and changes nothing, a file that already exists and
 differs is named and left alone, and running as root is refused. It also holds
 the repository's root entry point to what it claims to be: `./install.sh` has to
 exist, be executable, and reach the installer it names.
+
+The boundary job is the one that holds the tracked set's membership: the shell's
+own unit files and the promptd clients it links into `~/.local/bin` are that
+project's, installed by its `setup.sh`, and a path from that set appearing here
+again fails the run. It exists because every other job reads a tracked file for
+what it says — its shell, its path references, its rendered values — and none of
+them reads whether the file should be carried at all.
 
 The palette job is the one that keeps the rendered files honest: it re-renders
 every carrier listed in `.github/scripts/palette-targets.json` and compares the
