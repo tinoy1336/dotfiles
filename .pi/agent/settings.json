@@ -33,6 +33,7 @@
     "npm:@tinoy/pi-drift-anchor",
     "npm:@tinoy/pi-todo-parent",
     "npm:@tinoy/pi-fleet",
+    "npm:@tinoy/pi-io-guard",
     "npm:@tinoy/pi-deepseek-cost"
   ],
   "hideThinkingBlock": false,
@@ -117,7 +118,7 @@
           "~/.pi/agent/npm/node_modules/@tinoy/pi-todo-parent/index.ts",
           "~/.pi/agent/npm/node_modules/@tinoy/pi-drift-anchor/index.ts",
           "~/.pi/agent/extensions/sudo-approve.ts",
-          "~/.pi/agent/npm/node_modules/@tinoy/pi-fleet/io-guard/index.ts",
+          "~/.pi/agent/npm/node_modules/@tinoy/pi-io-guard/index.ts",
           "~/.pi/agent/npm/node_modules/@tinoy/pi-build/index.ts",
           "~/.pi/agent/npm/node_modules/@tinoy/pi-canon/index.ts"
         ],
