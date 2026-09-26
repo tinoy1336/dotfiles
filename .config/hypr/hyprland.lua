@@ -16,6 +16,18 @@ local musicApp = "youtube-music"
 local volumeStep = "5%"
 local brightnessStep = "5%"
 
+-- The tinshell tree root, derived from $HOME like the app-config lookups below.
+-- Keybind exec has no ~/.local/bin in PATH, so each app command carries its
+-- absolute path under that one root; a bind that needs an argument appends it.
+local shellDir = os.getenv("HOME") .. "/dev/tinshell"
+local launcher = shellDir .. "/common/shell/ensure-launcher-toggle.sh"
+local launcherEmoji = shellDir .. "/common/shell/ensure-launcher-emoji.sh"
+local clipboard = shellDir .. "/common/shell/tinshell-route.sh clipboard"
+local notes = shellDir .. "/apps/notes/ensure-new.sh"
+local notifications = shellDir .. "/common/shell/tinshell-route.sh notifications"
+local shellRestart = shellDir .. "/common/shell/restart-shell.sh"
+local screengrab = shellDir .. "/common/shell/ensure-screengrab.sh"
+
 -- GPU-wake pins: the RTX 4060 Max-Q is runtime-suspended, and session-wide env
 -- keeps exec_cmd-spawned apps from waking the dGPU by probing the NVIDIA Vulkan
 -- ICD at startup. The launcher's prime-run button unsets both for an NVIDIA launch.
@@ -47,7 +59,7 @@ hl.config({
         },
     },
     decoration = {
-        rounding = 12,
+        rounding = 14,
         shadow = {
             enabled = false,
         },
@@ -108,50 +120,33 @@ hl.bind(mod .. " + Return", hl.dsp.exec_cmd(terminal))
 -- SUPER+SHIFT+Return: floating terminal. Its own instance group keeps repeated
 -- presses in the float process, whose app_id the kitty-float rule matches.
 hl.bind(mod .. " + SHIFT + Return", hl.dsp.exec_cmd(terminalFloat))
--- Launcher (tinshell). Keybind exec has no ~/.local/bin in PATH, so the wrapper needs
--- an absolute path; it routes launcher toggle to the live instance, cold-starting
+-- Launcher (tinshell): routes launcher toggle to the live instance, cold-starting
 -- one when none is up.
-hl.bind(mod .. " + Space", hl.dsp.exec_cmd("/home/tinoy/dev/tinshell/common/shell/ensure-launcher-toggle.sh"))
+hl.bind(mod .. " + Space", hl.dsp.exec_cmd(launcher))
 hl.bind(mod .. " + Q", hl.dsp.window.close())
 hl.bind(mod .. " + F", hl.dsp.exec_cmd(mainBrowser))
 hl.bind(mod .. " + G", hl.dsp.exec_cmd(altBrowser))
 hl.bind(mod .. " + Y", hl.dsp.exec_cmd(musicApp))
 -- Notifications centre on mod+TAB (mod+N is the notes "new note" key), via the router.
-hl.bind(mod .. " + TAB", hl.dsp.exec_cmd("/home/tinoy/dev/tinshell/common/shell/tinshell-route.sh notifications toggle-centre"))
+hl.bind(mod .. " + TAB", hl.dsp.exec_cmd(notifications .. " toggle-centre"))
 -- Clipboard picker (tinshell surface) on mod+SHIFT+V (mod+V is the float toggle), same routing.
-hl.bind(mod .. " + SHIFT + V", hl.dsp.exec_cmd("/home/tinoy/dev/tinshell/common/shell/tinshell-route.sh clipboard toggle"))
+hl.bind(mod .. " + SHIFT + V", hl.dsp.exec_cmd(clipboard .. " toggle"))
 -- tinshell notes (on-demand, no systemd unit). N opens a fresh EMPTY note (`fresh`);
 -- SHIFT+N reopens the most recently closed note, else a fresh blank one.
-hl.bind(mod .. " + N", hl.dsp.exec_cmd("/home/tinoy/dev/tinshell/apps/notes/ensure-new.sh fresh"))
-hl.bind(mod .. " + SHIFT + N", hl.dsp.exec_cmd("/home/tinoy/dev/tinshell/apps/notes/ensure-new.sh new"))
+hl.bind(mod .. " + N", hl.dsp.exec_cmd(notes .. " fresh"))
+hl.bind(mod .. " + SHIFT + N", hl.dsp.exec_cmd(notes .. " new"))
 -- tinshell launcher emoji mode (mod+.): opens the launcher in emoji mode, closes it
--- when already there, switches it otherwise; absolute path for the same reason.
-hl.bind(mod .. " + period", hl.dsp.exec_cmd("/home/tinoy/dev/tinshell/common/shell/ensure-launcher-emoji.sh"))
+-- when already there, switches it otherwise.
+hl.bind(mod .. " + period", hl.dsp.exec_cmd(launcherEmoji))
 
 -- Restart the live shell (shell first, island second). The unit's ExecStartPre
 -- (tinshell-bus-wait.sh shell) absorbs the bus-name release, so no manual sleep.
-hl.bind(mod .. " + SHIFT + B", hl.dsp.exec_cmd("/home/tinoy/dev/tinshell/common/shell/restart-shell.sh"))
+hl.bind(mod .. " + SHIFT + B", hl.dsp.exec_cmd(shellRestart))
 
--- Frosted glass blur for the tinshell dock + applet popups
-hl.layer_rule({ match = { namespace = "dock-.*" }, blur = true, ignore_alpha = 0.05 })
--- No compositor animation on dock layer surfaces (applet pill + popups)
-hl.layer_rule({ match = { namespace = "dock-.*" }, no_anim = true })
--- Frosted glass blur for the launcher.
-hl.layer_rule({ match = { namespace = "launcher" }, blur = true, ignore_alpha = 0.2 })
--- Frosted glass blur for promptd.
-hl.layer_rule({ match = { namespace = "promptd" }, blur = true, ignore_alpha = 0.2 })
--- Frosted glass blur for the session-transition overlay (the full-screen
--- "Locking..."/"Logging out..." scrim); no_anim puts it on screen at once.
-hl.layer_rule({ match = { namespace = "session-overlay" }, blur = true, ignore_alpha = 0.2, no_anim = true })
--- Float yad dialogs (fallback windows for promptd clients) instead of tiling.
-hl.window_rule({
-    name  = "float-yad",
-    match = { class = "^(yad)$" },
-    float = true,
-})
 -- Re-assert border + rounding on floats so they survive the w[tv1] smart-gaps
--- rule (no_border + decorate=false); placed before notes/files, whose rounding
--- = 14 still wins (last match wins).
+-- rule (no_border + decorate=false); kept inline because no surface owns it, and
+-- placed before the generated rules just below, whose rounding = 14 wins (last
+-- match wins).
 hl.window_rule({
     name     = "float-decorations",
     match    = { float = true },
@@ -159,6 +154,15 @@ hl.window_rule({
     decorate = true,
     border_size = 1,
 })
+-- App-owned compositor rules are rendered into a directory beside this config, so
+-- a rule belonging to an app travels with that app. Mounted directly after the
+-- generic float rule: a window rule's keys apply over every earlier match and the
+-- last match wins per key, so the fragments' `rounding = 14` has to out-rank
+-- float-decorations' `rounding = 12`. The mount is guarded because a wildcard
+-- require matching nothing raises, which would abort the rest of this file.
+local configDir = os.getenv("HOME") .. "/.config/hypr"
+pcall(require, configDir .. "/rules/*.lua")
+
 -- The Shift-launched terminal only (its own app_id); 1200x760 at map, centred.
 hl.window_rule({
     name     = "kitty-float",
@@ -173,106 +177,6 @@ hl.window_rule({
 -- VS Code (class "code") frost is app-side (Vibrancy Continued makes the window
 -- transparent + frameless); the global blur frosts through its own alpha. An
 -- opacity rule would dim its glyphs, so there is none.
-
--- tinshell notes (io.Astal.notes): floats + rounds; frost comes from the global blur
--- through the translucent window (window_rule has no per-window blur key).
--- `size` is pinned ON PURPOSE: a fresh float whose first commit loses the startup
--- race gets Hyprland's half-monitor default configure, GTK4 obeys that nonzero
--- configure, and there is no post-map resize API for XDG windows — so the map
--- size is read from the app's own config here (changes apply on reload).
-local function configWindowSize(app, fallbackW, fallbackH)
-    local paths = {
-        os.getenv("HOME") .. "/.config/tinshell/" .. app .. ".json",
-        os.getenv("HOME") .. "/dev/tinshell/apps/" .. app .. "/config.defaults.json",
-    }
-    for _, p in ipairs(paths) do
-        local f = io.open(p, "r")
-        if f then
-            local s = f:read("*a")
-            f:close()
-            local w = tonumber(s:match('"width"%s*:%s*(%d+)')) or tonumber(s:match('"defaultWidth"%s*:%s*(%d+)'))
-            local h = tonumber(s:match('"height"%s*:%s*(%d+)')) or tonumber(s:match('"defaultHeight"%s*:%s*(%d+)'))
-            if w and h then return w, h end
-        end
-    end
-    return fallbackW, fallbackH
-end
-local notesW, notesH = configWindowSize("notes", 250, 250)
-local filesW, filesH = configWindowSize("files", 620, 390)
-local mediaW, mediaH = configWindowSize("media", 670, 380)
-local portalW, portalH = configWindowSize("portal", 630, 420)
-local annotateW, annotateH = configWindowSize("annotate", 630, 450)
-
-hl.window_rule({
-    name     = "notes-float",
-    match    = { class = "^(io\\.Astal\\.notes)$" },
-    float    = true,
-    rounding = 14,
-    size     = { notesW, notesH },
-    -- The w[tv1] smart-gaps rule sets no_border + decorate=false on immersive
-    -- workspaces; decorate=true re-asserts them for a float there.
-    decorate = true,
-    border_size = 1,
-    -- The rule applies at map only, so a manual resize still works.
-})
--- tinshell files (io.Astal.files): floating file browser, same frost + pinned map
--- size as notes (the size read from the app's own config).
-hl.window_rule({
-    name     = "files-float",
-    match    = { class = "^(io\\.Astal\\.files)$" },
-    float    = true,
-    rounding = 14,
-    size     = { filesW, filesH },
-    decorate = true,
-    border_size = 1,
-})
--- tinshell media (io.Astal.media): plays video in-window via GStreamer
--- gtk4paintablesink and renders stills inline; same float/pinned-size treatment.
-hl.window_rule({
-    name     = "media-float",
-    match    = { class = "^(io\\.Astal\\.media)$" },
-    float    = true,
-    rounding = 14,
-    size     = { mediaW, mediaH },
-    decorate = true,
-    border_size = 1,
-})
--- Floats all map centred at the same spot, so extra media instances would stack
--- invisibly; GTK4 has no position API, so title-matched `move` rules offset them.
-hl.window_rule({ name = "media-2", match = { title = "^media-2$" }, move = { 400, 40 } })
-hl.window_rule({ name = "media-3", match = { title = "^media-3$" }, move = { 440, 80 } })
-hl.window_rule({ name = "media-4", match = { title = "^media-4$" }, move = { 480, 120 } })
-hl.window_rule({ name = "media-5", match = { title = "^media-5$" }, move = { 520, 160 } })
-hl.window_rule({ name = "media-6", match = { title = "^media-6$" }, move = { 560, 200 } })
--- tinshell portal (io.Astal.portal): FileChooser backend dialog, same frost and
--- pinned map-size treatment as files.
-hl.window_rule({
-    name     = "portal-float",
-    match    = { class = "^(io\\.Astal\\.portal)$" },
-    float    = true,
-    rounding = 14,
-    size     = { portalW, portalH },
-    decorate = true,
-    border_size = 1,
-})
--- tinshell annotate (io.Astal.annotate): annotation editor, same float/pinned-size
--- treatment; opened from the ScreenGrab notification action, not a keybind.
-hl.window_rule({
-    name     = "annotate-float",
-    match    = { class = "^(io\\.Astal\\.annotate)$" },
-    float    = true,
-    rounding = 14,
-    size     = { annotateW, annotateH },
-    decorate = true,
-    border_size = 1,
-})
--- Frosted glass blur for tinshell notifications popups + control center (same frost)
-hl.layer_rule({ match = { namespace = "notifications-.*" }, blur = true, ignore_alpha = 0.2 })
-hl.layer_rule({ match = { namespace = "dock-pill" }, blur = true, ignore_alpha = 0.05 })
--- Frosted glass blur for the on-screen keyboard (no keybind — touch-first).
-hl.layer_rule({ match = { namespace = "keyboard-.*" }, blur = true, ignore_alpha = 0.2 })
--- Frosted glass blur for the clipboard picker.
-hl.layer_rule({ match = { namespace = "clipboard-picker" }, blur = true, ignore_alpha = 0.2 })
 
 -- LOCKED media keys: the session lock is an ext-session-lock surface and takes
 -- the seat, after which Hyprland skips every bind without the `locked` flag (the
@@ -297,7 +201,7 @@ hl.bind("XF86MonBrightnessDown", hl.dsp.exec_cmd("brightnessctl set " .. brightn
 
 -- Print: region capture inside the live instance that hosts the screengrab applet
 -- (its notification action is dispatched in-process, so the capture must run there).
-hl.bind("Print", hl.dsp.exec_cmd("/home/tinoy/dev/tinshell/common/shell/ensure-screengrab.sh"))
+hl.bind("Print", hl.dsp.exec_cmd(screengrab))
 
 hl.bind(mod .. " + Left", hl.dsp.focus({ direction = "left" }))
 hl.bind(mod .. " + Right", hl.dsp.focus({ direction = "right" }))

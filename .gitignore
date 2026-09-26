@@ -53,6 +53,9 @@
 !/.config/tinshell/
 # hand-written tool and desktop config
 !/.config/hypr/
+# the compositor rules the app builds render, not authored here: ignored rather
+# than left untracked, so a `git clean` in this work tree cannot delete them
+/.config/hypr/rules/
 !/.config/kitty/
 !/.config/haruna/
 !/.config/yad/
