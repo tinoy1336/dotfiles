@@ -9,7 +9,7 @@
 # ledger, and fires a desktop notification.
 #
 # The prompt file is merged with a templated epilogue (report path, PASS/FAIL
-# line, best-effort intercom send). A `# REPORT_PATH: <abs path>` directive in
+# line). A `# REPORT_PATH: <abs path>` directive in
 # the prompt file pins the report path; otherwise it defaults to
 # <reports-dir>/<name>-<next-n>.md.
 
@@ -89,8 +89,6 @@ cat >> "$combined" <<'EOF'
 # REPORT_PATH: __REPORT_PATH__
 When finished, write your findings to the report path above.
 End your final stdout message with a compact line beginning exactly with "PASS/FAIL:".
-Best-effort — never fatal — attempt intercom({ action: "send", to: "foreman",
-message: "<your one-line PASS/FAIL summary>" }) and swallow any error.
 EOF
 sed -i "s|__REPORT_PATH__|$report_path|g" "$combined"
 

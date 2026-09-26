@@ -13,7 +13,7 @@ Load this skill whenever the trigger matches; the rules below are binding for th
 
 ## Elevated-perms wall → handoff file
 
-**END-OF-NIGHT ELEVATED-PERMS WALL → HANDOFF .MD:** when an agent cannot proceed past a point without elevated perms (sudo_approve approval impossible — user asleep), it writes the situation to a markdown file (what was attempted, exact blocker, state of evidence, next steps) so a fresh session can efficiently pick up in the morning; peer sessions get an intercom pointer to the file. Never block indefinitely on approval nobody can grant.
+**END-OF-NIGHT ELEVATED-PERMS WALL → HANDOFF .MD:** when an agent cannot proceed past a point without elevated perms (sudo_approve approval impossible — user asleep), it writes the situation to a markdown file (what was attempted, exact blocker, state of evidence, next steps) so a fresh session can efficiently pick up in the morning; peer sessions get a pointer to the file in an `ipc` broadcast from inside that session. Never block indefinitely on approval nobody can grant.
 
 ## No notification noise overnight
 

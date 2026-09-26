@@ -5,7 +5,7 @@
 # Why this exists: a successor spawned through the shell of the session that
 # launches it inherits that session's crew binding. Launched from a WORKER's shell,
 # the successor carries PI_SUBAGENT_CHILD / PI_SUBAGENT_PARENT_SESSION /
-# PI_SUBAGENT_EXTENSION_BINDINGS / PI_INTERCOM_SESSION_ID, io-guard resolves that
+# PI_SUBAGENT_EXTENSION_BINDINGS, io-guard resolves that
 # binding to an identity a live process already owns, and every write and edit the
 # successor makes is refused for its whole life.
 #
@@ -14,11 +14,11 @@
 # configuration, not identity, and a prefix strip would silently drop them.
 #
 # `~/.local/bin/pi-foreman` is the foreman-mode launcher and performs the same
-# enumerated strip of those five identity names (it THEN exports PI_FOREMAN=1, which is
-# what arms foreman mode in the fleet extension). One concept, one list: the five names
+# enumerated strip of those four identity names (it THEN exports PI_FOREMAN=1, which is
+# what arms foreman mode in the fleet extension). One concept, one list: the four names
 # are shared with that script and if the list changes, both must change with it, so they
 # stay identical. This script exists for a successor that must NOT be armed as a foreman —
-# a handoff into a plain session — so it strips exactly those five names PLUS PI_FOREMAN,
+# a handoff into a plain session — so it strips exactly those four names PLUS PI_FOREMAN,
 # and nothing else.
 #
 # Usage: launch-successor.sh <model> <handoff-path> [cwd]
@@ -35,7 +35,6 @@ unset PI_SUBAGENT
 unset PI_SUBAGENT_CHILD
 unset PI_SUBAGENT_PARENT_SESSION
 unset PI_SUBAGENT_EXTENSION_BINDINGS
-unset PI_INTERCOM_SESSION_ID
 
 # PI_FOREMAN is MODE, not identity, and it is why this line exists: a successor launched
 # from a WORKER's shell inherits PI_FOREMAN=1 from the session above it (the workers run

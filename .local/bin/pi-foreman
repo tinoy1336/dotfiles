@@ -22,7 +22,7 @@
 #   Stripped — the identity and binding markers that make a process believe it is a
 #   crew leaf or another session's child:
 #     PI_SUBAGENT  PI_SUBAGENT_CHILD  PI_SUBAGENT_PARENT_SESSION
-#     PI_SUBAGENT_EXTENSION_BINDINGS  PI_INTERCOM_SESSION_ID
+#     PI_SUBAGENT_EXTENSION_BINDINGS
 #   Kept — configuration, not identity:
 #     PI_SUBAGENT_PI_BINARY         the binary pi-subagents launches nested runs with
 #     PI_SUBAGENT_CACHE_RETENTION   the parent-long/child-short cache split
@@ -46,8 +46,8 @@
 #   default, no extension or skill allowlist, no mode-file writing. The tool set
 #   and the model stay owned by the extension and by settings.json. The ONE default
 #   it sets is the session display name (`--name foreman`, skipped when the caller
-#   passes -n/--name), because an unnamed foreman is harder to address on intercom
-#   and in the footer.
+#   passes -n/--name), because an unnamed foreman is harder to address by peer
+#   sessions and in the footer.
 #
 # usage: pi-foreman [launcher options] [brief] [-- <pi args>]
 #        pi-foreman --brief <file> [-- <pi args>]
@@ -93,14 +93,13 @@ CLI_KEYS=$HOME/.local/bin/cli-keys
 CACHE=$("$CLI_KEYS" cache-path 2>/dev/null || true)
 FETCH_TIMEOUT=15
 
-# The five inherited identity/binding markers (stripped) and the two configuration
+# The four inherited identity/binding markers (stripped) and the two configuration
 # variables that must survive a strip (recorded, never touched).
 STRIP=(
 	PI_SUBAGENT
 	PI_SUBAGENT_CHILD
 	PI_SUBAGENT_PARENT_SESSION
 	PI_SUBAGENT_EXTENSION_BINDINGS
-	PI_INTERCOM_SESSION_ID
 )
 SURVIVE=(PI_SUBAGENT_PI_BINARY PI_SUBAGENT_CACHE_RETENTION)
 
@@ -149,7 +148,7 @@ arguments
 
 environment
   stripped: PI_SUBAGENT PI_SUBAGENT_CHILD PI_SUBAGENT_PARENT_SESSION
-            PI_SUBAGENT_EXTENSION_BINDINGS PI_INTERCOM_SESSION_ID
+            PI_SUBAGENT_EXTENSION_BINDINGS
   set:      PI_FOREMAN=1 (the literal 1, set outright: it overwrites any inherited
             value, because both readers compare against the exact string "1")
   kept:     PI_SUBAGENT_PI_BINARY PI_SUBAGENT_CACHE_RETENTION

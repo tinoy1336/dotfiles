@@ -111,7 +111,7 @@ in this order:
 
 `fleet` · `read` · `image_read` · `todo` · `io_status` · `write` ·
 `preview_export` · `ask_user_question` · `set_anchor` · `canon_add` ·
-`canon_remove` · `canon_edit` · `subagent_supervisor` · `intercom`
+`canon_remove` · `canon_edit` · `subagent_supervisor` · `ipc`
 
 The list is an ALLOWLIST: everything not named in it is absent from the session,
 `subagent` and `bash` and `edit` and the `ctx_*` family and the web tools among
@@ -591,8 +591,8 @@ request-time block, so a prediction would turn an honest `unmeasured` into a fal
 
 `skills/handoff/launch-successor.sh` starts the successor with the crew identity
 stripped, by ENUMERATED NAME: `PI_SUBAGENT`, `PI_SUBAGENT_CHILD`,
-`PI_SUBAGENT_PARENT_SESSION`, `PI_SUBAGENT_EXTENSION_BINDINGS` and
-`PI_INTERCOM_SESSION_ID`. Never by prefix: `PI_SUBAGENT_PI_BINARY` and
+`PI_SUBAGENT_PARENT_SESSION` and `PI_SUBAGENT_EXTENSION_BINDINGS`. Never by prefix:
+`PI_SUBAGENT_PI_BINARY` and
 `PI_SUBAGENT_CACHE_RETENTION` are configuration, not identity, and dropping them
 silently stops a nested launch from using the wrapper. A successor born holding a
 live worker's binding resolves to an identity another process owns, and io-guard

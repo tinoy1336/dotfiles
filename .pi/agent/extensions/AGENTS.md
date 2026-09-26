@@ -36,7 +36,7 @@ Two more sources feed the same list:
   directory paths. **Currently empty/absent.**
 - `~/.pi/agent/settings.json` → top-level `packages[]` — npm packages, each
   contributing its own extensions through a `package.json` `pi.extensions`
-  manifest. Third-party entries: `pi-web-access`, `pi-subagents`, `pi-intercom`,
+  manifest. Third-party entries: `pi-web-access`, `pi-subagents`,
   `@juicesharp/rpiv-ask-user-question`, `context-mode`, `@juicesharp/rpiv-todo`,
   `cc-safety-net`, `pi-markdown-preview`. The `@tinoy/pi-*` entries are this
   machine's own extensions, published from the `pi-extensions` repository and
@@ -242,8 +242,8 @@ packages and the two data files they read from this machine.
 | `@tinoy/pi-fleet/index.ts` | `fleet` tool; foreman arming (`PI_FOREMAN=1` read at `session_start`, the `pi-foreman` launcher's marker) plus the `foreman-off` escape command | yes | no | ambient only |
 | `focus-gate.ts` | `tool_call` + `context` + `session_start`/`session_shutdown` hooks, `/focus` | yes | yes | `defaultExtensions` |
 | `image-read.ts` | `image_read` tool | yes | yes | `defaultExtensions` |
-| `intercom-broadcast.ts` | `broadcast` tool | yes | no | ambient only |
 | `@tinoy/pi-io-guard/index.ts` | `io_status` tool + write hooks | yes | worker only | ambient + `worker.subagentOnlyExtensions` |
+| `@tinoy/pi-ipc/index.ts` | `ipc` tool (list/send/ask/broadcast) + the extension-bus registry | yes | no | ambient only |
 | `nf.ts` | `nf` tool | yes | yes | `defaultExtensions` |
 | `no-subagent-fork.ts` | `tool_call` hook | yes | yes | `defaultExtensions` |
 | `orphan-repair.ts` | `before_provider_request` hook | yes | yes | `defaultExtensions` |
@@ -478,7 +478,7 @@ which WAKES an idle session — the flip is known the moment it happens, not at
 the next user prompt. The watch survives a replace of the state file (the
 directory is watched and every event is
 re-read, never interpreted), coalesces two quick writes into one re-read, and is
-stopped at `session_shutdown`. The pi-intercom `focus` channel is the FALLBACK for
+stopped at `session_shutdown`. The `ipc` transport's `focus` channel is the FALLBACK for
 the peer notice, not the mechanism the sync depends on: a broker that is down, or
 a publish failure, costs only that notice — the file still gates everything and
 each session still re-syncs itself (`hookLog` source `focus-gate`, kinds
@@ -628,14 +628,28 @@ so no child loads it at all, and the `!ctx.hasUI` clause covers the second route
 anyway: a child session binds extensions with no UI context, so `hasUI` is false
 there as well.
 
-**`intercom-broadcast.ts`** — adds a `broadcast` tool that sends one message to
-every connected pi-intercom session on this machine (skipping the current one),
-delivered over pi-intercom's extension bus on namespace `broadcast`; each
-recipient with this extension loaded injects it into its own stream through
-`pi.sendMessage`, the same path a normal intercom send uses.
-*Spec:* requires `pi-intercom` installed and its broker running
-(`intercom({action: "status"})` ok), and a session (re)start after installing the
-file.
+**`@tinoy/pi-ipc/index.ts`** — the session-to-session transport on pi's model-facing
+surface: one `ipc` tool with four actions, `list` (the live sessions, each with a
+short id, a name and its cwd), `send` (one message to one peer, arriving in it as a
+turn of its own), `ask` (send, then block until that peer answers or the ask times
+out) and `broadcast` (the same message to every other live session). It also
+installs the extension bus: a registration emitted on
+`intercom:extension-register` is handed a channel with `publish` and
+`listSessions`, and `intercom:extension-registry-ready` is emitted so a consumer
+that loaded earlier can retry. The wire itself — `$XDG_RUNTIME_DIR/pi-ipc`, the
+presence records, the inbox and the bus contract strings — belongs to
+`@tinoy/pi-ext-lib`'s `ipc.ts`, which is what lets canon and focus-gate work
+against this implementation or any other. One unref'd 500 ms interval per session
+drains that session's inbox; an inbound message or ask is injected as its own turn;
+an ask still unanswered is named in one passive line at turn end, and there is no
+`pending` action to poll.
+*Spec:* state under `$XDG_RUNTIME_DIR/pi-ipc` — `presence/<session-id>.json`,
+`inbox/<session-id>/<seq>-<msg-id>.json`, directories 0700 and files 0600;
+`PI_IPC_ASK_TIMEOUT_MS` (default 600000 ms) is the only knob. No broker, no socket,
+no config file, no daemon and no `bin`; liveness is the process table (pid plus its
+`/proc/<pid>/stat` start time); a missing runtime directory, an ambiguous or
+unknown target, a send with no target and a broadcast with no peers are all refused
+by name.
 
 **`probe.ts`** — bounded status probe; one call replaces the systemctl +
 journalctl + pgrep bash clusters. A **unit** (`foo.service|target|timer|socket|
@@ -719,9 +733,9 @@ head in exchange for a bullet the model cannot act on.
 
 *Entry point.* `~/.local/bin/pi-foreman` is the launcher, and it is the only way
 in: it sets `PI_FOREMAN=1` (the literal `1`, overwriting any
-inherited value), strips the five inherited crew-identity markers (`PI_SUBAGENT`,
+inherited value), strips the four inherited crew-identity markers (`PI_SUBAGENT`,
 `PI_SUBAGENT_CHILD`, `PI_SUBAGENT_PARENT_SESSION`,
-`PI_SUBAGENT_EXTENSION_BINDINGS`, `PI_INTERCOM_SESSION_ID`), keeps
+`PI_SUBAGENT_EXTENSION_BINDINGS`), keeps
 `PI_SUBAGENT_PI_BINARY` and `PI_SUBAGENT_CACHE_RETENTION` — the strip is
 ENUMERATED, never a prefix — seeds the provider keys from the cli-keys cache
 (the path cli-keys reports, expired entries included), and
@@ -810,7 +824,7 @@ commands `/canon`, `/canon-dump`; hooks `before_agent_start`,
 `{entries: [{id, text, model, audience, reason?, category?}], categories: […]}`
 with `audience` one of `all | parent | foreman | subagent`;
 env `PI_CODING_AGENT_DIR`, `PI_MODEL`, `PI_SUBAGENT`, `PI_SUBAGENT_CHILD`,
-`PI_FOREMAN`; peers notified over the pi-intercom bus on namespace `canon`; logs
+`PI_FOREMAN`; peers notified over the `ipc` transport's bus on namespace `canon`; logs
 `canon` lines to the shared hook log.
 *Load scope:* the parent, plus worker children — `worker.subagentOnlyExtensions`
 names the package's entry file, so in a worker child the factory runs and the
@@ -842,7 +856,7 @@ children see none of them. Logs to `<io root>/build/logs/<ts>-<pid>-<slug>.log` 
 directory, the writer's pid in the filename so two builds cannot clobber each
 other's log) and falls back to `/tmp/pi-build-logs/` for a non-crew caller; one
 row per build is appended to `<io root>/builds.jsonl`. Strips `PI_SUBAGENT`,
-`PI_SUBAGENTS`, `PI_SESSION` and `PI_INTERCOM` prefixed variables plus five exact
+`PI_SUBAGENTS` and `PI_SESSION` prefixed variables plus five exact
 names (`ENV_STRIP_EXACT`) from that child environment. Imports `@tinoy/pi-ext-lib`
 (`hookLog`, `optionalNeighbour` and the header builders). What the private roots
 do and do not guarantee is §7.8.
@@ -1015,8 +1029,8 @@ the parent. A child gets it only through an explicit path in a child list (§1) 
 Installed set (registry copies; each package carries its own version):
 `pi-cache-prefix-log`, `pi-canon`, `pi-child-prompt-freeze`,
 `pi-child-request-dump`, `pi-cli-keys`, `pi-command-guard`, `pi-deepseek-cost`,
-`pi-desktop-notify`, `pi-drift-anchor`, `pi-focus-gate`, `pi-image-read`,
-`pi-intercom-broadcast`, `pi-nf`, `pi-no-subagent-fork`, `pi-orphan-repair`,
+`pi-desktop-notify`, `pi-drift-anchor`, `pi-focus-gate`, `pi-image-read`, `pi-ipc`,
+`pi-nf`, `pi-no-subagent-fork`, `pi-orphan-repair`,
 `pi-pause`, `pi-probe`, `pi-read-staleness`, `pi-status-metrics`,
 `pi-todo-parent`, plus the three `file:` bridges below. Library packages that ship
 no extension entry — `pi-ext-lib` (0.3.0), `pi-focus-state` (0.1.0),

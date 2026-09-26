@@ -50,14 +50,14 @@ Never anywhere else. Same dir every time.
      `PI_SUBAGENT_CHILD` is stripped and does not cover it. A crew handoff launches through
      `~/.local/bin/pi-foreman`, which arms foreman mode explicitly (it exports
      `PI_FOREMAN=1` after its own strip), so the inherited value must never decide it.
-     The five identity names are one list shared with `pi-foreman`; `PI_FOREMAN` is unset
+     The four identity names are one list shared with `pi-foreman`; `PI_FOREMAN` is unset
      by this launcher only.
    - A spawn that did die young is re-issued in this same detached form, with the log
      file read first — the successor's frozen session file is the tell.
    - `$CWD` = the project dir the handoff is about (e.g. `/home/tinoy/dev/tinshell`).
    - `$MODEL` = the requested model as `provider/id` (e.g. `deepseek/deepseek-flash`; take it from `pi --list-models` if unsure).
    - `$HANDOFF` = the absolute path to the handoff file (the `@file` makes it the new session's initial message).
-   - The launch goes through `launch-successor.sh`, NEVER a bare `bash -lc 'pi …'`: the script strips the crew identity from the environment (`PI_SUBAGENT`, `PI_SUBAGENT_CHILD`, `PI_SUBAGENT_PARENT_SESSION`, `PI_SUBAGENT_EXTENSION_BINDINGS`, `PI_INTERCOM_SESSION_ID`) plus `PI_FOREMAN`, and leaves `PI_SUBAGENT_PI_BINARY` and `PI_SUBAGENT_CACHE_RETENTION` alone. A successor that inherits a live worker's binding is refused every write for its whole life — and a worker-launched successor loses the subagents package entirely (`PI_SUBAGENT_CHILD=1` makes pi-subagents decline to register), so no crew verb works in it. If the successor must be a FOREMAN (a crew handoff), launch through `~/.local/bin/pi-foreman` instead once it is in place: it performs the same enumerated strip of the five identity names and then arms foreman mode itself. Those five names are one list in both — change both together.
+   - The launch goes through `launch-successor.sh`, NEVER a bare `bash -lc 'pi …'`: the script strips the crew identity from the environment (`PI_SUBAGENT`, `PI_SUBAGENT_CHILD`, `PI_SUBAGENT_PARENT_SESSION`, `PI_SUBAGENT_EXTENSION_BINDINGS`) plus `PI_FOREMAN`, and leaves `PI_SUBAGENT_PI_BINARY` and `PI_SUBAGENT_CACHE_RETENTION` alone. A successor that inherits a live worker's binding is refused every write for its whole life — and a worker-launched successor loses the subagents package entirely (`PI_SUBAGENT_CHILD=1` makes pi-subagents decline to register), so no crew verb works in it. If the successor must be a FOREMAN (a crew handoff), launch through `~/.local/bin/pi-foreman` instead once it is in place: it performs the same enumerated strip of the four identity names and then arms foreman mode itself. Those four names are one list in both — change both together.
    - Before spawning the window, send a `desktop_notify` heads-up (it opens a window / takes focus — intrusive action). Adapt the spawn for a different terminal/tmux if the user isn't on kitty.
 5. **Clock out — close your own kitty window.** A handoff is end-of-shift: you
 wrote the doc, opened the preview, spawned the successor, delivered your final
@@ -188,10 +188,8 @@ fleet({action: "adopt", from: "current"})
 - A worker whose run record is gone is refused by name, and the rest are still
   adopted.
 
-Two things a successor must know: the extension is loaded per process, so this verb
-exists only in a process started after it shipped (a running session never gains it),
-and a worker adopted from a handoff carries the PREVIOUS session's intercom target —
-the crew's channel to a foreman is its run output, not intercom.
+One thing a successor must know: the extension is loaded per process, so this verb
+exists only in a process started after it shipped (a running session never gains it).
 
 ## Template (framework, not a rigid form)
 
