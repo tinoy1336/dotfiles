@@ -1215,6 +1215,23 @@ same reason: the per-worker `TMPDIR` / `XDG_CACHE_HOME` / `CARGO_TARGET_DIR` rea
 build-spawned commands only — a worker's own bash-tool children still see them
 unset and land in the session temp directory.
 
+**7.9 A process started to watch a notice must have the inherited markers stripped,
+or it withholds the notice it was started to observe.** `PI_SUBAGENT=1`,
+`PI_SUBAGENT_CHILD=1` and `PI_FOREMAN=1` are the three environment names that
+decide a session's canon audience, and they are read once at process start and
+never re-read. Either child marker collapses the audience set to `{subagent}`
+before `PI_FOREMAN` is consulted, so an inherited foreman marker changes nothing
+there; an unstripped `PI_FOREMAN=1` on a session that should be a plain parent
+widens the set to `{parent, foreman}` instead. A check launched from a peer's
+shell inherits whatever names that shell carries, so it classifies itself as a
+child, and canon's bus registration then drops every notice whose entry scope is
+`parent` or `foreman` — the filter is `matches(scope, model, audiences)` and it
+is correct to withhold them. The symptom is a verification that reports the
+notice never arrived; the tell is the receiver's own block header, which reads
+`(this session: subagent)`. Strip all three names from the environment of any
+process started for a check — with them left set, the check measures the child
+projection of the store rather than the one the surface under test renders.
+
 ---
 
 ## 8. Canon for children — what is live, and what is still open
