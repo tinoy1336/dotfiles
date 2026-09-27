@@ -16,18 +16,6 @@ local musicApp = "youtube-music"
 local volumeStep = "5%"
 local brightnessStep = "5%"
 
--- The tinshell tree root, derived from $HOME like the app-config lookups below.
--- Keybind exec has no ~/.local/bin in PATH, so each app command carries its
--- absolute path under that one root; a bind that needs an argument appends it.
-local shellDir = os.getenv("HOME") .. "/dev/tinshell"
-local launcher = shellDir .. "/common/shell/ensure-launcher-toggle.sh"
-local launcherEmoji = shellDir .. "/common/shell/ensure-launcher-emoji.sh"
-local clipboard = shellDir .. "/common/shell/tinshell-route.sh clipboard"
-local notes = shellDir .. "/apps/notes/ensure-new.sh"
-local notifications = shellDir .. "/common/shell/tinshell-route.sh notifications"
-local shellRestart = shellDir .. "/common/shell/restart-shell.sh"
-local screengrab = shellDir .. "/common/shell/ensure-screengrab.sh"
-
 -- GPU-wake pins: the RTX 4060 Max-Q is runtime-suspended, and session-wide env
 -- keeps exec_cmd-spawned apps from waking the dGPU by probing the NVIDIA Vulkan
 -- ICD at startup. The launcher's prime-run button unsets both for an NVIDIA launch.
@@ -120,28 +108,10 @@ hl.bind(mod .. " + Return", hl.dsp.exec_cmd(terminal))
 -- SUPER+SHIFT+Return: floating terminal. Its own instance group keeps repeated
 -- presses in the float process, whose app_id the kitty-float rule matches.
 hl.bind(mod .. " + SHIFT + Return", hl.dsp.exec_cmd(terminalFloat))
--- Launcher (tinshell): routes launcher toggle to the live instance, cold-starting
--- one when none is up.
-hl.bind(mod .. " + Space", hl.dsp.exec_cmd(launcher))
 hl.bind(mod .. " + Q", hl.dsp.window.close())
 hl.bind(mod .. " + F", hl.dsp.exec_cmd(mainBrowser))
 hl.bind(mod .. " + G", hl.dsp.exec_cmd(altBrowser))
 hl.bind(mod .. " + Y", hl.dsp.exec_cmd(musicApp))
--- Notifications centre on mod+TAB (mod+N is the notes "new note" key), via the router.
-hl.bind(mod .. " + TAB", hl.dsp.exec_cmd(notifications .. " toggle-centre"))
--- Clipboard picker (tinshell surface) on mod+SHIFT+V (mod+V is the float toggle), same routing.
-hl.bind(mod .. " + SHIFT + V", hl.dsp.exec_cmd(clipboard .. " toggle"))
--- tinshell notes (on-demand, no systemd unit). N opens a fresh EMPTY note (`fresh`);
--- SHIFT+N reopens the most recently closed note, else a fresh blank one.
-hl.bind(mod .. " + N", hl.dsp.exec_cmd(notes .. " fresh"))
-hl.bind(mod .. " + SHIFT + N", hl.dsp.exec_cmd(notes .. " new"))
--- tinshell launcher emoji mode (mod+.): opens the launcher in emoji mode, closes it
--- when already there, switches it otherwise.
-hl.bind(mod .. " + period", hl.dsp.exec_cmd(launcherEmoji))
-
--- Restart the live shell (shell first, island second). The unit's ExecStartPre
--- (tinshell-bus-wait.sh shell) absorbs the bus-name release, so no manual sleep.
-hl.bind(mod .. " + SHIFT + B", hl.dsp.exec_cmd(shellRestart))
 
 -- Re-assert border + rounding on floats so they survive the w[tv1] smart-gaps
 -- rule (no_border + decorate=false); kept inline because no surface owns it, and
@@ -199,10 +169,6 @@ hl.bind("XF86AudioStop", hl.dsp.exec_cmd("playerctl stop"))
 hl.bind("XF86MonBrightnessUp", hl.dsp.exec_cmd("brightnessctl set " .. brightnessStep .. "+"), { locked = true, repeating = true })
 hl.bind("XF86MonBrightnessDown", hl.dsp.exec_cmd("brightnessctl set " .. brightnessStep .. "-"), { locked = true, repeating = true })
 
--- Print: region capture inside the live instance that hosts the screengrab applet
--- (its notification action is dispatched in-process, so the capture must run there).
-hl.bind("Print", hl.dsp.exec_cmd(screengrab))
-
 hl.bind(mod .. " + Left", hl.dsp.focus({ direction = "left" }))
 hl.bind(mod .. " + Right", hl.dsp.focus({ direction = "right" }))
 hl.bind(mod .. " + Up", hl.dsp.focus({ direction = "up" }))
@@ -240,13 +206,6 @@ for workspace = 1, 9 do
     hl.bind(mod .. " + " .. workspace, hl.dsp.focus({ workspace = workspace }))
     hl.bind(mod .. " + SHIFT + " .. workspace, hl.dsp.window.move({ workspace = workspace }))
 end
-
--- SUPER+0 = workspace 10 (the workspaces slider applet's 10th step)
-hl.bind(mod .. " + 0", hl.dsp.focus({ workspace = 10 }))
-hl.bind(mod .. " + SHIFT + 0", hl.dsp.window.move({ workspace = 10 }))
--- SUPER+- = workspace 11 (the 11th slider step)
-hl.bind(mod .. " + MINUS", hl.dsp.focus({ workspace = 11 }))
-hl.bind(mod .. " + SHIFT + MINUS", hl.dsp.window.move({ workspace = 11 }))
 
 -- Tablet/tent mode: trackpad 3-finger swipe left/right through workspaces
 hl.gesture({ fingers = 3, direction = "horizontal", action = "workspace" })

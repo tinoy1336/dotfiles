@@ -175,7 +175,7 @@ and friends are kept out of unrelated `git add` calls.
 
 | Path | What it holds |
 | --- | --- |
-| `.config/hypr/` | Hyprland configuration (`hyprland.lua` and the conf files it loads), idle timers, lock screen, the workspace-cycle and plugin-loader scripts |
+| `.config/hypr/` | Hyprland configuration (`hyprland.lua` and the conf files it loads), idle timers, lock screen, the workspace-cycle and plugin-loader scripts. `rules/` is GENERATED — one Lua fragment per tinshell surface, rendered there by the shell tree's `npm run gen:hypr-rules` from the rule data beside each surface (`apps/<app>/hypr-rules.ts`) and required by `hyprland.lua` with a wildcard |
 | `.config/tinshell/` | the shell's live config, one JSON file per surface |
 | `.config/wireplumber/` | the WirePlumber drop-ins — Bluetooth sinks take the default slot, and a device route with nothing stored starts at one set volume |
 | `.config/systemd/user/` | the units this machine declares and enables: wallpaper, display rotation, key refresh and the patch applier's. The shell's own units — the shell, the artifact warm, the portal, polkit, the watchdog — are templates in the shell's tree, rendered to this directory by its `setup.sh`, and are not tracked here |
