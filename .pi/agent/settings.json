@@ -34,7 +34,8 @@
     "npm:@tinoy/pi-fleet",
     "npm:@tinoy/pi-io-guard",
     "npm:@tinoy/pi-deepseek-cost",
-    "npm:@tinoy/pi-sudo-approve"
+    "npm:@tinoy/pi-sudo-approve",
+    "npm:@tinoy/pi-ext-lib@0.5.0"
   ],
   "hideThinkingBlock": false,
   "showCacheMissNotices": true,
