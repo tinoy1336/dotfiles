@@ -718,18 +718,17 @@ mode file says ON or the session arrived with `PI_FOREMAN=1`; a session that
 qualifies either way re-arms the fixed foreman set. A failed activation leaves
 the previous tool set in place and the mode OFF.
 
-The re-armed set carries the injected loader tools with it. `subagents_enable`
-and `web_enable` are admitted at activation, kept by the stray sweep on every
-tool call, and listed BY NAME in a `LOADER_TOOLS` constant — never matched by an
-`_enable` suffix, because that suffix is a naming convention, not a contract, and
-a third-party tool that happened to match it would inherit permanent sweep
-immunity and a permanent prompt bullet. The reason the exception exists at all is
-cache stability: the extension that owns a loader re-adds it on the typed path
-only, so sweeping it out of the active set here would make the next typed run
-render one prompt bullet more than the run before it, and a head that moves
-re-bills the conversation behind it. The payload filter still drops both names
-from the wire, so the prompt advertises a tool the request withholds — a stable
-head in exchange for a bullet the model cannot act on.
+The re-armed set is exactly `FOREMAN_TOOLS`, with no exception. A loader carve-out used
+to sit here — `subagents_enable` and `web_enable` admitted at activation and spared by
+the stray sweep — because the extension owning a loader re-adds it on the typed path
+only, so sweeping it out made the next run render one prompt bullet fewer, and a head
+that moves re-bills the conversation behind it. pi-subagents 0.74 chooses its tool
+activation from the model instead, so a session whose model cannot accept a tool added
+mid-conversation starts with `subagent` and registers no loader at all, which is why the
+carve-out was removed rather than kept. A foreman session that still carries a loader —
+a model that CAN add tools mid-session, where pi-subagents keeps the dynamic path — is
+swept like any other stray and accepts that head move; the payload filter drops the name
+from the wire either way.
 
 *Entry point.* `~/.local/bin/pi-foreman` is the launcher, and it is the only way
 in: it sets `PI_FOREMAN=1` (the literal `1`, overwriting any

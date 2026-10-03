@@ -30,7 +30,9 @@
           },
           "compat": {
             "requiresReasoningContentOnAssistantMessages": true,
-            "thinkingFormat": "deepseek"
+            "thinkingFormat": "deepseek",
+            "supportsMidConvoSystemMessages": false,
+            "supportsMidConvoToolAdditions": false
           }
         },
         {
@@ -59,7 +61,9 @@
           },
           "compat": {
             "requiresReasoningContentOnAssistantMessages": true,
-            "thinkingFormat": "deepseek"
+            "thinkingFormat": "deepseek",
+            "supportsMidConvoSystemMessages": false,
+            "supportsMidConvoToolAdditions": false
           }
         }
       ]
@@ -100,7 +104,9 @@
             "supportsReasoningEffort": true,
             "maxTokensField": "max_tokens",
             "thinkingFormat": "zai",
-            "zaiToolStream": true
+            "zaiToolStream": true,
+            "supportsMidConvoSystemMessages": false,
+            "supportsMidConvoToolAdditions": false
           }
         }
       ]
