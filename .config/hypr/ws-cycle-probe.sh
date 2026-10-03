@@ -60,7 +60,7 @@ note() {
 # case <name> <stored state|NONE> <argument|-> <want-style> <want-index>
 case_step() {
   local name="$1" stored="$2" arg="$3" want_style="$4" want_index="$5"
-  local out status dispatched index style
+  local out status dispatched index
   rm -f "$STATE"
   [ "$stored" = NONE ] || printf '%s\n' "$stored" > "$STATE"
   : > "$SCRATCH/dispatched"
