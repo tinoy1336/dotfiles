@@ -1,5 +1,10 @@
 {
+  "tool": {
+    "package": "@tinoy/colourway",
+    "version": "0.1.0"
+  },
   "palette": {
+    "path": ".config/colourway/palette.json",
     "revision": "04031d0",
     "sha256": "15322952c371949710ae4648cc4e1feb64c5ff750451bc8f85113e1aa3b2127a"
   },
@@ -50,9 +55,9 @@
       "record": ".config/zsh/house-colors.sh.record.json"
     },
     {
-      "template": ".config/house-palette/kdeglobals.colours.template.ts",
-      "output": ".config/house-palette/kdeglobals.colours.ini",
-      "record": ".config/house-palette/kdeglobals.colours.ini.record.json"
+      "template": ".config/colourway/kdeglobals.colours.template.ts",
+      "output": ".config/colourway/kdeglobals.colours.ini",
+      "record": ".config/colourway/kdeglobals.colours.ini.record.json"
     },
     {
       "template": ".config/vesktop/settings/quickCss.template.ts",

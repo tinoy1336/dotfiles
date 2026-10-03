@@ -458,11 +458,14 @@ __pycache__/
 !/.config/gtkrc.house
 !/.config/gtkrc.house.record.json
 !/.config/gtkrc.house.template.ts
-!/.config/house-palette/
-/.config/house-palette/*
-!/.config/house-palette/kdeglobals.colours.ini
-!/.config/house-palette/kdeglobals.colours.ini.record.json
-!/.config/house-palette/kdeglobals.colours.template.ts
+!/.config/colourway/
+/.config/colourway/*
+!/.config/colourway/kdeglobals.colours.ini
+!/.config/colourway/kdeglobals.colours.ini.record.json
+!/.config/colourway/kdeglobals.colours.template.ts
+# the palette every rendered colour in this home comes from: the renderer that
+# reads it is a published program, and this file is this machine's configuration
+!/.config/colourway/palette.json
 # the client's profile is denied wholesale in 6d — it holds that account's token
 # and its cache — and only the QuickCSS file the client watches is re-included
 !/.config/vesktop/

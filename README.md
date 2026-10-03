@@ -273,12 +273,14 @@ order of how much they matter:
 
 ## The files rendered from the house palette
 
-Every colour and opacity this home configures comes from one source: the house
-palette repository (`https://github.com/tinoy1336/house-palette`). That repository
-holds the tokens (`palette.json`) and a renderer (`bin/render`); it holds no
-template for any program and knows no destination. Each program's values are
-therefore rendered here, by a template that lives beside the file it produces,
-and this repository gates both.
+Every colour and opacity this home configures comes from one source:
+`.config/colourway/palette.json`, tracked here like any other configuration. The
+program that renders it — `colourway` — is a published package that holds the
+palette's schema and the renderer and no template for any program, and knows no
+destination. Each program's values are therefore rendered here, by a template
+that lives beside the file it produces, and this repository gates both. The
+palette is configuration first: editing it is a deliberate change, and the digest
+pinned below is what decides whether the carriers move with it.
 
 A carrier is three files: the template (`<name>.template.ts`), the rendered file,
 and the renderer's record of it (`<name>.record.json`). The record names the
@@ -296,7 +298,7 @@ identical in every checkout and a gate can compare it.
 | git | `.config/git/colors.template.ts` | `.config/git/colors.inc`, included by `.gitconfig` |
 | tmux | `.config/tmux/colors.template.ts` | `.config/tmux/colors.conf`, sourced by `.tmux.conf` |
 | the login shell | `.config/zsh/house-colors.template.ts` | `.config/zsh/house-colors.sh`, sourced by `.zshrc` |
-| KDE / Plasma | `.config/house-palette/kdeglobals.colours.template.ts` | `.config/house-palette/kdeglobals.colours.ini`, merged by hand into `kdeglobals` on a machine that installs that desktop |
+| KDE / Plasma | `.config/colourway/kdeglobals.colours.template.ts` | `.config/colourway/kdeglobals.colours.ini`, merged by hand into `kdeglobals` on a machine that installs that desktop |
 | the chat client | `.config/vesktop/settings/quickCss.template.ts` | `.config/vesktop/settings/quickCss.css`, watched by the client |
 | the music player | `.config/YouTube Music/themes/house.template.ts` | `.config/YouTube Music/themes/house.css`, named by the player's theme list, added by hand |
 | the agent | `.pi/agent/themes/house.template.ts` | `.pi/agent/themes/house.json`, selected by `.pi/agent/settings.json` |
@@ -316,27 +318,31 @@ exceptions.
 
 ### Re-rendering
 
-The renderer is a program from the palette repository, so it is named on the
-command line rather than vendored here:
+The renderer is a published program, run at the version pinned in
+`.github/scripts/palette-targets.json`, so nothing is vendored here and a local
+run is the same run as CI's:
 
 ```sh
-# once, to have the renderer locally
-git clone https://github.com/tinoy1336/house-palette
-
 # compare every carrier against a fresh render (the CI job runs exactly this)
-.github/scripts/palette-check.sh <path-to-house-palette>/bin/render
+.github/scripts/palette-check.sh
 
 # re-render every carrier after a template or palette change
-.github/scripts/palette-check.sh <path-to-house-palette>/bin/render --render
+.github/scripts/palette-check.sh --render
 ```
 
-A single carrier takes the same two commands with the renderer's own arguments,
-which is what the header of every rendered file repeats:
+A single carrier takes the renderer's own arguments, which is what the header of
+every rendered file repeats:
 
 ```sh
-bin/render --template .config/tmux/colors.template.ts \
+npx --yes @tinoy/colourway@0.1.0 \
+  --template .config/tmux/colors.template.ts \
+  --palette .config/colourway/palette.json \
   --out .config/tmux/colors.conf --record .config/tmux/colors.conf.record.json
 ```
+
+To render with no network, or to work on the renderer itself, name a local
+executable in `COLOURWAY_BIN` and the gate uses that instead of the pinned
+package.
 
 Edit a template, re-render, read the diff, then commit the template, the rendered
 file and the record together. A rendered file is never edited by hand: its first
@@ -347,10 +353,10 @@ the record beside it is the only record of where it comes from.
 
 ### The pinned palette revision
 
-`.github/scripts/palette-targets.json` lists the carriers and pins the palette
-this home rendered against by its commit and its content digest. Every run passes
-both to the renderer, so a palette that moved is reported before anything is
-compared:
+`.github/scripts/palette-targets.json` lists the carriers, the renderer's version,
+and the palette this home rendered against — where it sits, and its commit and its
+content digest. Every run passes all three to the renderer, so a palette that
+moved is reported before anything is compared:
 
 ```text
 palette-mismatch …/palette.json: expected 15322952…, found 4c1f0b31…
@@ -368,7 +374,7 @@ lines in `.gitignore`, both in the change that adds it.
 ends with a count:
 
 ```sh
-.github/scripts/palette-check.sh <path-to-house-palette>/bin/render
+.github/scripts/palette-check.sh
 stale /home/tinoy/.config/tmux/colors.conf
 palette: 13 target(s) checked, 1 stale, 0 could not run
 ```
@@ -423,7 +429,7 @@ export GIT_DIR="$HOME/.dotfiles.git" GIT_WORK_TREE="$HOME"
 .github/scripts/installer-smoke.sh .
 .github/scripts/portability.sh
 .github/scripts/boundary-check.sh
-.github/scripts/palette-check.sh <path-to-house-palette>/bin/render
+.github/scripts/palette-check.sh
 ```
 
 The rehearsal is the one with real value for a reader: it proves the committed

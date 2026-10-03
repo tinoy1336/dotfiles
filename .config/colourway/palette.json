@@ -1,0 +1,388 @@
+{
+  "version": 2,
+  "groups": {
+    "surface": {
+      "base": {
+        "hex": "#0a0c11",
+        "purpose": "The translucent base every glass surface composites over; each surface's own opacity is an opacity.* token."
+      },
+      "view": {
+        "hex": "#16181c",
+        "purpose": "The opaque background of a content view that sits above the base."
+      },
+      "window": {
+        "hex": "#1b1d22",
+        "purpose": "The opaque background of a floating window."
+      },
+      "raised": {
+        "hex": "#23262c",
+        "purpose": "The background of a control or card raised above the view it sits in."
+      },
+      "input": {
+        "hex": "#171a21",
+        "purpose": "The base of the on-screen input panel; its own opacity is opacity.input-panel."
+      }
+    },
+
+    "text": {
+      "strong": {
+        "hex": "#ffffff",
+        "purpose": "The highest emphasis text: a heading that must outrank everything around it."
+      },
+      "primary": {
+        "hex": "#e6e6e6",
+        "purpose": "Default body text: the colour ordinary prose and control labels are drawn in."
+      },
+      "secondary": {
+        "hex": "#c9c9c9",
+        "purpose": "Supporting text one step below the default."
+      },
+      "muted": {
+        "hex": "#a6a6a6",
+        "purpose": "Text that must recede: labels, metadata, secondary detail."
+      },
+      "faint": {
+        "hex": "#a6a6a6",
+        "alpha": 0.55,
+        "frozen": true,
+        "purpose": "The lowest text tier, carried as translucency so it recedes on any surface."
+      },
+      "faint-solid": {
+        "derive": { "op": "composite", "from": "text.faint", "over": "surface.base" },
+        "purpose": "The opaque stand-in for text.faint, for carriers that cannot express alpha."
+      },
+      "on-accent": {
+        "hex": "#14171c",
+        "purpose": "Text and icons drawn on a filled accent surface."
+      }
+    },
+
+    "accent": {
+      "primary": {
+        "hex": "#8ab5f7",
+        "purpose": "The one hue the interface leads with: selection, focus and emphasis."
+      },
+      "soft": {
+        "derive": { "op": "blend-toward-white", "from": "accent.primary", "amount": 0.3 },
+        "purpose": "A lighter step of the primary accent, for emphasis on a dark surface."
+      },
+      "secondary": {
+        "hex": "#4cccf2",
+        "purpose": "A second accent hue, for the places where two accent hues must be told apart."
+      },
+      "tertiary": {
+        "hex": "#b88cf2",
+        "purpose": "A third accent hue, one step further from the primary than accent.secondary."
+      }
+    },
+
+    "state": {
+      "error": {
+        "hex": "#ff6b6b",
+        "purpose": "Failure or destruction: invalid input, a destructive action, an error."
+      },
+      "warning": {
+        "hex": "#f0b35a",
+        "purpose": "Caution: something needs attention but nothing has failed."
+      },
+      "success": {
+        "derive": { "op": "rotate-hue", "from": "accent.primary", "degrees": 140 },
+        "purpose": "A completed or healthy condition."
+      }
+    },
+
+    "border": {
+      "hairline": {
+        "hex": "#ffffff",
+        "alpha": 0.06,
+        "frozen": true,
+        "purpose": "The faintest edge: a panel against the surface behind it."
+      },
+      "divider": {
+        "alias": "border.hairline",
+        "purpose": "The separator between the rows of a list; the same decision as border.hairline, so the two cannot drift."
+      },
+      "strong": {
+        "hex": "#ffffff",
+        "alpha": 0.1,
+        "frozen": true,
+        "purpose": "A boundary that must be seen, between two regions of one surface."
+      },
+      "active": {
+        "hex": "#cccccc",
+        "frozen": true,
+        "purpose": "The border of the window that holds the focus."
+      },
+      "inactive": {
+        "hex": "#000000",
+        "alpha": 0,
+        "frozen": true,
+        "purpose": "The border of a window that does not hold the focus: fully transparent."
+      }
+    },
+
+    "interaction": {
+      "hover": {
+        "hex": "#ffffff",
+        "alpha": 0.08,
+        "frozen": true,
+        "purpose": "The background of a control under the pointer."
+      },
+      "hover-strong": {
+        "hex": "#ffffff",
+        "alpha": 0.14,
+        "frozen": true,
+        "purpose": "The pointer's background where the surface underneath is already light."
+      },
+      "wash": {
+        "hex": "#ffffff",
+        "alpha": 0.1,
+        "frozen": true,
+        "purpose": "A thin film laid over a region to lift it off the surface behind."
+      },
+      "card-wash": {
+        "hex": "#ffffff",
+        "alpha": 0.05,
+        "frozen": true,
+        "purpose": "The smaller lift applied to a card inside an already raised panel."
+      },
+      "row-highlight": {
+        "hex": "#ffffff",
+        "alpha": 0.1,
+        "frozen": true,
+        "purpose": "The background of the list row under the pointer."
+      },
+      "row-active": {
+        "hex": "#ffffff",
+        "alpha": 0.16,
+        "frozen": true,
+        "purpose": "The background of the list row being pressed or dragged."
+      },
+      "row-selected": {
+        "hex": "#0a0c11",
+        "alpha": 0.72,
+        "frozen": true,
+        "purpose": "The background of the list row that is the current selection."
+      },
+      "selection-menu": {
+        "hex": "#8ab5f7",
+        "alpha": 0.22,
+        "frozen": true,
+        "purpose": "The selection fill inside a pop-up menu."
+      },
+      "selection-row": {
+        "hex": "#8ab5f7",
+        "alpha": 0.35,
+        "frozen": true,
+        "purpose": "The selection fill of the active row in a list."
+      },
+      "selection-text": {
+        "hex": "#8ab5f7",
+        "alpha": 0.45,
+        "frozen": true,
+        "purpose": "The fill behind text a reader has highlighted."
+      },
+      "accent-fill": {
+        "hex": "#8ab5f7",
+        "alpha": 0.18,
+        "frozen": true,
+        "purpose": "The accent laid down as a fill beneath text or an icon."
+      },
+      "focus-ring": {
+        "hex": "#8ab5f7",
+        "alpha": 0.55,
+        "frozen": true,
+        "purpose": "The ring drawn around the element that holds keyboard focus."
+      },
+      "danger-fill": {
+        "hex": "#ff6b6b",
+        "alpha": 0.16,
+        "frozen": true,
+        "purpose": "The destructive action's fill, at a strength that reads as a warning rather than an alarm."
+      },
+      "scrollbar-thumb": {
+        "hex": "#ffffff",
+        "alpha": 0.22,
+        "frozen": true,
+        "purpose": "The scrollbar thumb at rest."
+      },
+      "scrollbar-thumb-hover": {
+        "hex": "#ffffff",
+        "alpha": 0.3,
+        "frozen": true,
+        "purpose": "The scrollbar thumb under the pointer."
+      },
+      "scrollbar-thumb-active": {
+        "hex": "#ffffff",
+        "alpha": 0.45,
+        "frozen": true,
+        "purpose": "The scrollbar thumb while it is dragged."
+      }
+    },
+
+    "opacity": {
+      "panel": {
+        "alpha": 0.5,
+        "frozen": true,
+        "purpose": "How much shows through the primary panel surface."
+      },
+      "card": {
+        "alpha": 0.5,
+        "frozen": true,
+        "purpose": "How much shows through a raised card surface."
+      },
+      "backdrop": {
+        "alpha": 0.35,
+        "frozen": true,
+        "purpose": "How much shows through the large backdrop behind a set of controls."
+      },
+      "control-disc": {
+        "alpha": 0.45,
+        "frozen": true,
+        "purpose": "How much shows through the small rounded panel that groups a few controls."
+      },
+      "menu": {
+        "alpha": 0.55,
+        "frozen": true,
+        "purpose": "How much shows through a pop-up menu."
+      },
+      "message": {
+        "alpha": 0.5,
+        "frozen": true,
+        "purpose": "How much shows through a message panel."
+      },
+      "message-urgent": {
+        "alpha": 0.62,
+        "frozen": true,
+        "purpose": "How much shows through a message panel whose text must stay legible against whatever is behind it."
+      },
+      "input-panel": {
+        "alpha": 0.72,
+        "frozen": true,
+        "purpose": "How much shows through the on-screen input panel."
+      },
+      "terminal": {
+        "alpha": 0.5,
+        "frozen": true,
+        "purpose": "How much shows through a full-screen text console surface."
+      }
+    },
+
+    "effect": {
+      "text-shadow": {
+        "hex": "#000000",
+        "alpha": 0.44,
+        "frozen": true,
+        "purpose": "The colour behind text so it stays legible over an image; the offset that pairs with it is geometry, not a palette value."
+      },
+      "glow-alpha": {
+        "alpha": 0.22,
+        "frozen": true,
+        "purpose": "How strong the halo around a focused or active element is drawn; the halo's colour is accent.primary."
+      },
+      "scrim-base": {
+        "hex": "#000000",
+        "frozen": true,
+        "purpose": "The colour the readability wash is painted in."
+      },
+      "scrim-opacity": {
+        "alpha": 0.5,
+        "frozen": true,
+        "purpose": "How strong the readability wash is."
+      }
+    },
+
+    "syntax": {
+      "comment": {
+        "alias": "text.muted",
+        "purpose": "Source comments: the quietest text in a code listing."
+      },
+      "keyword": {
+        "alias": "accent.primary",
+        "purpose": "Language keywords: the words that carry structural meaning."
+      },
+      "function": {
+        "alias": "accent.soft",
+        "purpose": "Callable names: a function or a method in a code listing."
+      },
+      "variable": {
+        "alias": "text.primary",
+        "purpose": "Identifiers that are neither a call nor a type."
+      },
+      "string": {
+        "alias": "state.success",
+        "purpose": "String and character literals."
+      },
+      "number": {
+        "alias": "state.warning",
+        "purpose": "Numeric and boolean literals."
+      },
+      "type": {
+        "alias": "accent.secondary",
+        "purpose": "Type, class and enum names."
+      },
+      "operator": {
+        "alias": "text.strong",
+        "purpose": "Operators and the punctuation that groups expressions."
+      },
+      "punctuation": {
+        "alias": "text.faint-solid",
+        "purpose": "Structural punctuation: brackets, separators, terminators."
+      }
+    },
+
+    "terminal": {
+      "0": { "alias": "surface.base", "purpose": "The default background of a text console." },
+      "1": { "alias": "state.error", "purpose": "Failure text in a text console." },
+      "2": { "alias": "state.success", "purpose": "Success text in a text console." },
+      "3": { "alias": "state.warning", "purpose": "Caution text in a text console." },
+      "4": { "alias": "accent.primary", "purpose": "The primary accent hue in a text console." },
+      "5": { "alias": "accent.tertiary", "purpose": "The third accent hue in a text console." },
+      "6": { "alias": "accent.secondary", "purpose": "The second accent hue in a text console." },
+      "7": { "alias": "text.muted", "purpose": "Ordinary foreground text in a text console." },
+      "8": { "alias": "text.faint-solid", "purpose": "The faintest readable text in a text console." },
+      "9": {
+        "derive": { "op": "blend-toward-white", "from": "state.error", "amount": 0.25 },
+        "purpose": "A brighter failure colour than slot 1."
+      },
+      "10": {
+        "derive": { "op": "blend-toward-white", "from": "state.success", "amount": 0.25 },
+        "purpose": "A brighter success colour than slot 2."
+      },
+      "11": {
+        "derive": { "op": "blend-toward-white", "from": "state.warning", "amount": 0.25 },
+        "purpose": "A brighter caution colour than slot 3."
+      },
+      "12": {
+        "derive": { "op": "blend-toward-white", "from": "accent.primary", "amount": 0.25 },
+        "purpose": "A brighter primary accent than slot 4."
+      },
+      "13": {
+        "derive": { "op": "blend-toward-white", "from": "accent.tertiary", "amount": 0.25 },
+        "purpose": "A brighter third accent than slot 5."
+      },
+      "14": {
+        "derive": { "op": "blend-toward-white", "from": "accent.secondary", "amount": 0.25 },
+        "purpose": "A brighter second accent than slot 6."
+      },
+      "15": { "alias": "text.primary", "purpose": "The brightest foreground text in a text console." }
+    }
+  },
+
+  "composites": {
+    "border.hairline": "#191b1f",
+    "border.strong": "#222429",
+    "effect.text-shadow": "#06070a",
+    "interaction.accent-fill": "#212a3a",
+    "interaction.card-wash": "#16181d",
+    "interaction.danger-fill": "#311b1f",
+    "interaction.focus-ring": "#506990",
+    "interaction.hover": "#1e1f24",
+    "interaction.hover-strong": "#2c2e32",
+    "interaction.selection-menu": "#263144",
+    "interaction.selection-row": "#374761",
+    "interaction.selection-text": "#445878",
+    "interaction.wash": "#222429",
+    "text.faint": "#606163"
+  }
+}

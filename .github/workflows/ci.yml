@@ -131,19 +131,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      # The renderer belongs to the palette repository, which is public, and is not
-      # vendored here — the rendered files and their templates are all that travel.
-      # Its default branch is fetched rather than a pinned commit, because the
-      # gate's own --expect-palette is what reports that the palette moved: a clone
-      # held at a fixed revision would hide exactly the change this job exists for.
-      - uses: actions/checkout@v7
-        with:
-          repository: tinoy1336/house-palette
-          path: .palette-renderer
-      # Node runs the renderer's sources by stripping the types, so the version is
-      # pinned rather than left to the runner image.
+      # The renderer is a published package and is not vendored here: the rendered
+      # files and their templates are all that travel. Its version is pinned in
+      # palette-targets.json, and the gate's own --expect-palette is what reports
+      # that the palette moved, so nothing here is held at a fixed revision.
       - uses: actions/setup-node@v7
         with:
           node-version: 22
       - name: Re-render every palette file and compare it
-        run: .github/scripts/palette-check.sh .palette-renderer/bin/render
+        run: .github/scripts/palette-check.sh
