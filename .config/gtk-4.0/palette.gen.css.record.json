@@ -1,13 +1,13 @@
 {
   "version": 1,
   "template": {
-    "sha256": "a633702afc4fd928a5788d2ce56590c06de4a47f30139dbc5d6f1c031d8e3d41"
+    "sha256": "41d103c2367a85ab6fdf769a5986eba8d33e3a0a82763cda75e3e330c0175a5d"
   },
   "palette": {
     "sha256": "15322952c371949710ae4648cc4e1feb64c5ff750451bc8f85113e1aa3b2127a",
-    "revision": "04031d0"
+    "revision": "2575377"
   },
   "output": {
-    "sha256": "dbf67236350b99adb1e175f631f9a09dd88ca9f481ac9ce8961edc4673004815"
+    "sha256": "e79bc567a09e1730bd50bd62af8107099dee29ae96040238e75576bf713c24de"
   }
 }
