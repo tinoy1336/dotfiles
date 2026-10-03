@@ -22,7 +22,7 @@
     "npm:@tinoy/pi-nf",
     "npm:@tinoy/pi-command-guard",
     "npm:@tinoy/pi-focus-gate",
-    "npm:@tinoy/pi-cli-keys",
+    "npm:@tinoy/pi-cli-keys@0.3.1",
     "npm:@tinoy/pi-pause",
     "npm:@tinoy/pi-desktop-notify",
     "npm:@tinoy/pi-probe",
