@@ -12,6 +12,9 @@
 PLUGIN=/var/cache/hyprpm/tinoy/hyprgrass/hyprgrass.so
 
 hyprctl plugin load "$PLUGIN" >/dev/null 2>&1 || true   # already loaded on re-runs
+# Registration is asynchronous and posts no completion signal: 0.2 s is the window
+# the load takes here. An eval that ever runs too early is fixed by polling
+# `hyprctl plugin list` first, not by lengthening this.
 sleep 0.2  # let the plugin register its options/dispatchers
 
 # sensitivity 4.0 is the recommendation for tablet screens

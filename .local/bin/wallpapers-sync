@@ -26,6 +26,9 @@ transition_duration=2
 log() { printf '%s\n' "$*"; }
 die() { printf 'wallpapers-sync: %s\n' "$*" >&2; exit 1; }
 
+# 12 x 5 s bounds the wait at 60 s. The CLI answers at once when it is
+# unauthenticated, so the retries cover a daemon still starting rather than a
+# slow link; a transfer that needs longer raises the count here.
 wait_for_network() {
     for _ in $(seq 1 12); do
         if proton-drive filesystem list /my-files >/dev/null 2>&1; then
