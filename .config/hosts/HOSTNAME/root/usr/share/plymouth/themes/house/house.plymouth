@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=House
+Description=The house palette: a field, a wordmark, and a line of progress.
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/house
+ScriptFile=/usr/share/plymouth/themes/house/house.script

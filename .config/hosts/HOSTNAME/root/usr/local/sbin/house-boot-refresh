@@ -1,0 +1,64 @@
+#!/bin/sh
+# house-boot-refresh — rebuild what the house boot screen is made of.
+#
+# The theme files themselves are installed by host-apply from this machine's declaration.
+# The menu font, the initramfs and the menu are derived from them, so they are regenerated
+# whenever the theme, the plymouth configuration or /etc/default/grub.d moves:
+#
+#   sudo house-boot-refresh
+#
+# The font is generated rather than carried in the repository: GRUB_FONT in the boot drop-in
+# names the file written below, on the ESP, because grub-mkconfig cryptomounts the root
+# volume for any file it finds on it — a font there would put the passphrase prompt back in
+# the firmware's console, before GRUB's graphical terminal exists. The family and size are
+# this script's to choose; the theme names the same face, and the check at the end holds the
+# two together.
+#
+# plymouth-set-default-theme records the theme without rebuilding anything: its own rebuild
+# option runs mkinitcpio, and this machine generates its initrds with dracut, so the rebuild
+# is asked for through the script that owns the kernels here. grub-mkconfig then reads the
+# font and the theme path back into the menu.
+set -eu
+
+esp_dir=/efi
+font_dir="$esp_dir/grub/fonts"
+font_file="$font_dir/house-32.pf2"
+font_family="House Boot"
+font_size=32
+font_source=/usr/share/fonts/TTF/JetBrainsMonoNerdFont-Regular.ttf
+theme_file=/boot/grub/themes/house/theme.txt
+
+# ASCII and Latin-1 for the boot text, the typographic quotes and dash grub's own messages
+# use, the bullet the plymouth dialog counts with, the arrows the key hints are made of and
+# the box-drawing characters a rule would be drawn with.
+font_range="0x20-0x7e,0xa0-0xff,0x2018-0x201d,0x2022-0x2022,0x2190-0x21ff,0x2500-0x257f,0x25cf-0x25cf"
+
+# The ESP has to be the mounted ESP: an unmounted /efi is a directory on the root volume, and
+# a font written there would be found by grub-mkconfig on the encrypted volume instead — the
+# exact placement this font exists to avoid. A single stat is enough to trigger the automount.
+[ -d "$esp_dir" ] || {
+	echo "house-boot-refresh: $esp_dir is not there" >&2
+	exit 1
+}
+if [ "$(stat -f -c %T "$esp_dir")" != msdos ]; then
+	echo "house-boot-refresh: $esp_dir is not the ESP's vfat — is it mounted?" >&2
+	exit 1
+fi
+
+# The file's mode belongs to the vfat mount, not to this script: GRUB reads the FAT directly.
+mkdir -p "$font_dir"
+grub-mkfont -s "$font_size" -n "$font_family" -r "$font_range" -o "$font_file" "$font_source"
+
+# Every font the installed theme names has to be inside the file just written: the theme
+# would otherwise draw with a font GRUB never loaded, and the menu would come up empty.
+sed -n 's/.*"\([^"]* Regular [0-9][0-9]*\)".*/\1/p' "$theme_file" | sort -u |
+	while read -r named; do
+		if ! grep -qaF -- "$named" "$font_file"; then
+			echo "house-boot-refresh: $theme_file names '$named' and $font_file does not carry it" >&2
+			exit 1
+		fi
+	done
+
+plymouth-set-default-theme house
+dracut-rebuild
+grub-mkconfig -o /boot/grub/grub.cfg
