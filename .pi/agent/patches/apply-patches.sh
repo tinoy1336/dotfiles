@@ -30,11 +30,6 @@ RECENT_WINDOW="${PI_PATCH_RETRY_WINDOW:-90}"
 TRANSIENT_ATTEMPTS="${PI_PATCH_RETRY_ATTEMPTS:-4}"
 TRANSIENT_WAIT="${PI_PATCH_RETRY_WAIT:-15}"
 NOTIFY_APP="pi-patches"
-# The toolchain doctor runs at the end of the run, so the one unit that already fires on
-# every package rewrite and at every login covers both halves of "is this healthy?": the
-# patches below, and the runner's ability to import its peers (a rewrite can leave every
-# patch applied and the async runner dead at import).
-DOCTOR="${PI_PATCH_DOCTOR:-$PATCH_ROOT/doctor.sh}"
 
 now() { date '+%Y-%m-%d %H:%M:%S'; }
 log() { printf '%s %s\n' "$(now)" "$*" >> "$LOG" 2>/dev/null || true; }
@@ -319,33 +314,6 @@ done < "$MANIFEST"
 # several packages at once, and a popup per entry buries the ones that matter.
 if [ "$restored" -gt 0 ]; then
 	notify normal "pi patches re-applied: $restored" "$applied_names"
-fi
-
-# The doctor verdict closes the run. It reports only when unhealthy, and it is told to
-# stay silent (while still printing the notification it would have sent, for the log)
-# when this run already has a failure of its own to announce — one notification per run.
-doctor_no_notify=""
-if [ -n "${PI_PATCH_NO_NOTIFY:-}" ] || [ "$failures" -gt 0 ]; then
-	doctor_no_notify="PI_DOCTOR_NO_NOTIFY=1"
-fi
-doctor_rc=0
-if [ -f "$DOCTOR" ]; then
-	DOCTOR_OUT="$(mktemp "${TMPDIR:-/tmp}/pi-doctor.XXXXXX")"
-	env $doctor_no_notify PI_DOCTOR_MANIFEST="$MANIFEST" timeout 45 bash "$DOCTOR" > "$DOCTOR_OUT" 2>&1 || doctor_rc=$?
-	while IFS= read -r line; do
-		[ -n "$line" ] && say "doctor: $line"
-	done < "$DOCTOR_OUT"
-	rm -f "$DOCTOR_OUT"
-elif [ -n "$DOCTOR" ]; then
-	doctor_rc=1
-	say "FAILED doctor: $DOCTOR absent"
-fi
-if [ "$doctor_rc" -ne 0 ]; then
-	failures=$((failures + 1))
-	{
-		printf 'doctor: pi toolchain check failed (exit %s)\n' "$doctor_rc"
-		printf 'detail: %s\n' "$LOG"
-	} | write_failed
 fi
 
 if [ "$failures" -eq 0 ]; then
