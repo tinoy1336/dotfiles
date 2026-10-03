@@ -4,9 +4,11 @@
 # Usage: foreman-headless <name> <prompt-file> [--model M] [--cwd DIR]
 #
 # Prints the pi PID to stdout and returns immediately. A fully-detached
-# watcher (foreman-headless-watch) waits for the pi process to exit, then
-# writes a completion marker, appends a JSONL row to the headless-runs
-# ledger, and fires a desktop notification.
+# watcher (foreman-headless-watch) waits for the pi process to exit — under a
+# ceiling, so a run that answers and then stays alive still produces the marker,
+# the ledger row and the notification — and then writes the completion marker,
+# appends a JSONL row to the headless-runs ledger, and fires a desktop
+# notification.
 #
 # The prompt file is merged with a templated epilogue (report path, PASS/FAIL
 # line). A `# REPORT_PATH: <abs path>` directive in

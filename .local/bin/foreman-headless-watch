@@ -8,6 +8,14 @@
 #   - appends a JSONL row to the headless-runs ledger
 #   - fires a desktop notification (notify-send) with the summary
 #
+# The wait for pi is BOUNDED (HEADLESS_WAIT_LIMIT, default 900 s). A headless
+# `pi -p` run can print its answer and then stay alive — the extension layer
+# keeps file watches and a session-database handle open after the reply — so
+# without a ceiling this supervisor would hold the pidfile and the caller's only
+# completion signals (marker, ledger row, notification) forever. A run cut off at
+# the ceiling is recorded the way any other abort is: exit 124, and a summary
+# that states the cut-off rather than a verdict printed before the hang.
+#
 # Args (all positional):
 #   $1 name        session/run name
 #   $2 combined    merged prompt file (original + epilogue)
@@ -59,9 +67,39 @@ done < <(env | sed -n 's/^\(PI_SUBAGENT_[A-Z0-9_]*\)=.*/\1/p' | sort -u)
 pi_pid=$!
 echo "$pi_pid" > "$pidfile"
 
-# Wait for pi to finish; keep the real exit code.
-wait "$pi_pid"
-ec=$?
+# Wait for pi to finish, with a ceiling. The ceiling exists because a run can
+# answer and then stay alive (see the header), and it is set an order of
+# magnitude above a real verification pass so it cannot cut honest work short:
+# such a pass is one model call plus its tool use and finishes in single-digit
+# minutes, while the ceiling keeps a hung run from holding the caller's only
+# completion signals open indefinitely. Overridable for a test that must not sit
+# for the whole window.
+HEADLESS_WAIT_LIMIT="${HEADLESS_WAIT_LIMIT:-900}"
+timed_out=0
+deadline=$(( SECONDS + HEADLESS_WAIT_LIMIT ))
+while kill -0 "$pi_pid" 2>/dev/null; do
+  if [ "$SECONDS" -ge "$deadline" ]; then
+    timed_out=1
+    break
+  fi
+  sleep 2
+done
+
+if [ "$timed_out" = 1 ]; then
+  # Cut the run off the way any other abort ends it: ask it to stop, insist if it
+  # does not, then reap it so no zombie is left behind.
+  kill -TERM "$pi_pid" 2>/dev/null || true
+  for _ in $(seq 1 10); do
+    kill -0 "$pi_pid" 2>/dev/null || break
+    sleep 0.5
+  done
+  kill -KILL "$pi_pid" 2>/dev/null || true
+  wait "$pi_pid" 2>/dev/null || true
+  ec=124
+else
+  wait "$pi_pid"
+  ec=$?
+fi
 
 # --- gather the summary -------------------------------------------------------
 # The verifier is told to end its final stdout line with "PASS/FAIL: ...".
@@ -70,6 +108,11 @@ summary="run exited with code $ec"
 last_summary="$(grep -E '^PASS/FAIL:' "$log" 2>/dev/null | tail -n 1)"
 if [ -n "$last_summary" ]; then
   summary="$last_summary"
+fi
+# A run cut off at the ceiling is recorded as an abort, and any verdict it printed
+# before hanging is kept beside that fact instead of standing as the result.
+if [ "$timed_out" = 1 ]; then
+  summary="TIMEOUT: cut off after ${HEADLESS_WAIT_LIMIT}s (exit 124); last verdict line: ${last_summary:-none}"
 fi
 
 # --- completion marker (one line, next to the log) ----------------------------
