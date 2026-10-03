@@ -178,7 +178,14 @@ VAULT_TOKEN_FILE="$STATE_DIR/token"
 REF_DIR="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}"
 
 REFS=""
-cleanup() { [ -n "$REFS" ] && rm -f "$REFS"; }
+# The temp file an in-flight atomic write is going through, if any. The writer below
+# sets and clears it; cleanup removes the name THIS process created and nothing else.
+ATOMIC_TMP=""
+cleanup() {
+  [ -n "$REFS" ] && rm -f "$REFS"
+  [ -n "$ATOMIC_TMP" ] && rm -f "$ATOMIC_TMP"
+  return 0
+}
 trap cleanup EXIT
 
 now_epoch() { date +%s; }
@@ -314,16 +321,78 @@ is_retryable_auth_failure() {
   printf '%s\n' "$1" | grep -qiE "$RETRYABLE_AUTH_RE"
 }
 
-# write_reject_state <state> <epoch> <notice-id> — the announcement record, written
-# atomically. It carries the notice's own id beside the announcement, because that id is
-# what makes a repeat update the card on screen instead of stacking a second one.
-write_reject_state() {
-  local tmp="$REJECT_STATE.$$"
-  if jq -n --arg s "$1" --argjson e "$2" --argjson i "${3:-0}" '{state:$s, epoch:$e, id:$i}' >"$tmp"; then
-    mv -f "$tmp" "$REJECT_STATE" || rm -f "$tmp"
-  else
-    rm -f "$tmp"
+# atomic_stage <destination> — create the temp file a write will go through, in the
+# destination's OWN directory so the rename cannot cross a filesystem, and private from
+# its first byte rather than at whatever the ambient umask allows. The path is left in
+# ATOMIC_TMP, which is a global on purpose: cleanup has to see it, and a command
+# substitution around this call would set it in a subshell and lose it.
+atomic_stage() {
+  local dest="$1" dir base
+  dir="$(dirname "$dest")"
+  base="$(basename "$dest")"
+  ATOMIC_TMP="$(umask 077; mktemp "$dir/.$base.tmp.XXXXXX")" || {
+    ATOMIC_TMP=""
+    echo "cli-keys: could not stage a write for $dest" >&2
+    return 1
+  }
+  return 0
+}
+
+# atomic_commit <destination> — give the file staged in ATOMIC_TMP the mode the
+# destination requires (an existing destination keeps its own, a new one is 600), flush
+# it, and rename it into place. A rename that fails says so and returns non-zero:
+# reporting a write that did not happen as a success is the difference between written
+# and lost.
+atomic_commit() {
+  local dest="$1" mode
+  [ -f "$ATOMIC_TMP" ] || {
+    echo "cli-keys: nothing was staged for $dest" >&2
+    return 1
+  }
+  mode="$(stat -c '%a' "$dest" 2>/dev/null || printf '600')"
+  chmod "$mode" "$ATOMIC_TMP" || {
+    echo "cli-keys: could not give the staged file mode $mode for $dest" >&2
+    rm -f "$ATOMIC_TMP"
+    ATOMIC_TMP=""
+    return 1
+  }
+  # Flushed before the rename: without it a crash can leave the destination naming
+  # bytes the filesystem has not written yet, which is the one failure the rename does
+  # not cover. Best effort — a filesystem that cannot flush a single file says so here
+  # rather than at the rename.
+  sync -f "$ATOMIC_TMP" 2>/dev/null || true
+  if mv -f "$ATOMIC_TMP" "$dest"; then
+    ATOMIC_TMP=""
+    return 0
   fi
+  echo "cli-keys: could not replace $dest — the copy already there is untouched" >&2
+  rm -f "$ATOMIC_TMP"
+  ATOMIC_TMP=""
+  return 1
+}
+
+# write_atomic <destination> <command...> — a write this process performs itself: stage,
+# run the writer with its stdout on the temp, then commit. A writer that fails leaves the
+# destination alone and the temp removed.
+write_atomic() {
+  local dest="$1"
+  shift
+  atomic_stage "$dest" || return 1
+  if ! "$@" > "$ATOMIC_TMP"; then
+    rm -f "$ATOMIC_TMP"
+    ATOMIC_TMP=""
+    return 1
+  fi
+  atomic_commit "$dest"
+}
+
+# write_reject_state <state> <epoch> <notice-id> — the announcement record. It carries the
+# notice's own id beside the announcement, because that id is what makes a repeat update
+# the card on screen instead of stacking a second one. A failed replace is reported and
+# returns non-zero; the caller still raises the notice, because the card is what an
+# operator acts on and this record only bounds how often it is shown.
+write_reject_state() {
+  write_atomic "$REJECT_STATE" jq -n --arg s "$1" --argjson e "$2" --argjson i "${3:-0}" '{state:$s, epoch:$e, id:$i}'
 }
 
 # announce_rejected <replace-id> — raise the notice and print the id the daemon assigned.
@@ -435,11 +504,17 @@ run_fetch() {
   # environment (masking them on stdout) and this script hands it the names to
   # read, so the child derives both its validation and its serialization from
   # the same list. It validates every value before writing, so a partial set can
-  # never reach the cache, and it commits with a rename.
+  # never reach the cache.
+  #
+  # It writes into a temp THIS process staged, and the replace is this process's
+  # too: the temp is therefore covered by cleanup for as long as the fetch runs,
+  # which the child could not do for itself, and the mode and the rename are the
+  # same code every other write here uses.
+  atomic_stage "$CACHE" || return 1
   err="$(mktemp "$REF_DIR/cli-keys-run.XXXXXX")" || return 1
   timeout "$VAULT_TIMEOUT" pass-cli run --env-file "$REFS" -- sh -c '
     set -u
-    cache="$1"; now="$2"; expires="$3"; shift 3
+    tmp="$1"; now="$2"; expires="$3"; shift 3
     for v in "$@"; do
       eval "value=\${$v:-}"
       if [ -z "$value" ]; then
@@ -447,25 +522,25 @@ run_fetch() {
         exit 1
       fi
     done
-    umask 077
-    tmp="$cache.tmp.$$"
-    if ! jq -n --argjson fe "$now" --argjson ee "$expires" --args \
+    jq -n --argjson fe "$now" --argjson ee "$expires" --args \
       "{version:1, fetched_epoch:\$fe, expires_epoch:\$ee, keys:(reduce \$ARGS.positional[] as \$n ({}; .[\$n] = env[\$n]))}" \
-      "$@" >"$tmp"; then
-      rm -f "$tmp"
-      echo "cli-keys: could not serialize the fetched values" >&2
-      exit 1
-    fi
-    chmod 600 "$tmp"
-    mv -f "$tmp" "$cache" || { rm -f "$tmp"; exit 1; }
-  ' _ "$CACHE" "$now" "$expires" "${KEY_NAMES[@]}" 2>"$err"
+      "$@" >"$tmp"
+  ' _ "$ATOMIC_TMP" "$now" "$expires" "${KEY_NAMES[@]}" 2>"$err"
   rc=$?
   LAST_VAULT_ERROR="$(cat "$err")"
   rm -f "$err"
   # The vault's own diagnostics stay in the journal, whichever class they are; the
   # notice is what an operator needs on top of them.
   [ -n "$LAST_VAULT_ERROR" ] && printf '%s\n' "$LAST_VAULT_ERROR" >&2
-  [ "$rc" -eq 0 ] || return 1
+  if [ "$rc" -ne 0 ]; then
+    # A fetch that did not finish leaves nothing behind: the staged file is this
+    # process's, and the cache it was destined for was never touched.
+    rm -f "$ATOMIC_TMP"
+    ATOMIC_TMP=""
+    return 1
+  fi
+  # The values are in the staged file; the replace is what makes them the cache.
+  atomic_commit "$CACHE" || return 1
   return 0
 }
 
