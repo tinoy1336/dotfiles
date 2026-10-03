@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# sudo shim for hyprpm (2026-08-21).
+# sudo shim for hyprpm.
 #
 # hyprpm unconditionally shells out to "sudo <cmd> ... /var/cache/hyprpm/..."
 # for its cache operations (mkdir/rm/cp on headersRoot, plugin builds, state),

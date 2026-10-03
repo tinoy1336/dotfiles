@@ -523,7 +523,7 @@ tp-yt-paper-listbox#items.style-scope.ytmusic-menu-popup-renderer > * > a {
   height: auto !important;
   min-height: 30px !important;
   /* horizontal 0: navigation items sit INSIDE an 8px-padded host — the a's
-   * own 8px doubled it (icons 8px right of service items, 2026-09-03) */
+   * own 8px would double the inset */
   padding: 2px 0 !important;
   border-radius: 8px !important;
 }
@@ -730,7 +730,7 @@ a.yt-simple-endpoint.style-scope.ytmusic-responsive-list-item-renderer {
 
 ytmusic-search-suggestions-section.style-scope.ytmusic-search-box {
   /* 0.8 (not the 0.55 popover glass): suggestions sit over busy album art,
-   * legibility beats transparency here (user, 2026-09-03) */
+   * legibility beats transparency here */
   background: rgba(16, 19, 26, 0.8) !important;
   backdrop-filter: blur(16px) !important;
   border-radius: 12px !important;
@@ -1991,7 +1991,7 @@ html {
   color-scheme: dark !important;
 }
 
-/* ---- quirk fixes (2026-08-25, vision review) ---- */
+/* ---- quirk fixes ---- */
 /* hero-card play circles: ghost glass disc + light triangle (was accent square) */
 ytmusic-item-thumbnail-overlay-renderer #play-button,
 ytmusic-item-thumbnail-overlay-renderer tp-yt-paper-icon-button#play-button {

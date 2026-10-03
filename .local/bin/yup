@@ -14,6 +14,6 @@ after="$(pacman -Q hyprland 2>/dev/null | awk '{print $2}' || true)"
 if [ -n "$after" ] && [ "$before" != "$after" ]; then
     echo "hyprland updated ($before -> $after) — rebuilding hyprpm plugins..."
     # NOTE: no sudo — hyprpm refuses to run as superuser; it runs as the
-    # user against the user-owned /var/cache/hyprpm cache (2026-08-21).
+    # user against the user-owned /var/cache/hyprpm cache.
     hyprpm update || echo "WARNING: hyprpm update failed — run 'hyprpm update' manually."
 fi
