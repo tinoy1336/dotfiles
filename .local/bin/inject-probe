@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+# inject-probe — fixture table for inject's key-sequence balancer and its plan.
+#
+# inject exists because a press without its release leaks machine-wide: the seat
+# believes the button is already down and every real click is ignored until the
+# matching release lands. The balancer is what makes that unexpressible — a bare
+# code is paired for the caller, and a hand-written sequence is refused unless the
+# down and up counts match — so the two failures that matter are a balancer that
+# stops counting and a pairing that emits a press alone. Both are silent: the
+# command still succeeds and the plan still looks plausible.
+#
+# The prober drives the real script through `--dry-run`, which is the path the
+# script itself takes BEFORE it touches the device, and it puts a stub named
+# `ydotool` first on PATH. That stub is the safety property as much as the
+# measurement: if a run ever reached for the tool, the stub would take the call
+# and record it instead of injecting, and the fixture would fail rather than the
+# pointer.
+#
+# Usage: inject-probe [--verbose]
+# Exit:  0 = every fixture matches, 1 = a fixture's outcome changed,
+#        2 = the probe itself failed.
+set -uo pipefail
+
+TOOL="${INJECT_PROBE_TOOL:-$HOME/.local/bin/inject}"
+VERBOSE=0
+[ "${1:-}" = "--verbose" ] && VERBOSE=1
+
+[ -x "$TOOL" ] || {
+  printf 'inject-probe: %s is not executable — THE PROBE DID NOT RUN\n' "$TOOL" >&2
+  exit 2
+}
+
+SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/inject-probe.XXXXXX")"
+cleanup() {
+  case "$(readlink -f "$SCRATCH")" in
+  "${TMPDIR:-/tmp}"/inject-probe.*) rm -rf "$SCRATCH" ;;
+  esac
+}
+trap cleanup EXIT
+
+STUB="$SCRATCH/stub"
+mkdir -p "$STUB"
+RECORD="$SCRATCH/reached"
+REACHED_ANY="$SCRATCH/reached-any"
+: > "$REACHED_ANY"
+
+# The stub is named for the tool the script would inject with, and it is created
+# here rather than invoked: nothing in this probe ever runs that tool, and a call
+# that did arrive would be recorded and swallowed.
+printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s"\nexit 0\n' "$RECORD" > "$STUB/ydotool"
+chmod +x "$STUB/ydotool"
+PATH="$STUB:$PATH"
+export PATH
+
+pass=0
+fail=0
+note() {
+  if [ "$VERBOSE" = 1 ]; then printf '       %s\n' "$*"; fi
+}
+
+# case <name> <want-exit> <want-substring> [args...]
+# Every case also asserts that the run reached nothing: the plan is allowed to
+# print, the device is not.
+case_args() {
+  local name="$1" want_exit="$2" want_text="$3"
+  shift 3
+  local out status
+  : > "$RECORD"
+  out="$("$TOOL" "$@" 2>&1)"
+  status=$?
+
+  if [ "$status" != "$want_exit" ]; then
+    printf 'FAIL  %s :: exit %s, wanted %s\n' "$name" "$status" "$want_exit"
+    printf '%s\n' "$out" | sed 's/^/       | /'
+    fail=$((fail + 1))
+    return 0
+  fi
+  # The safety property is read before the plan text: a run that reached the tool
+  # is the failure that matters, whatever its output looked like.
+  if [ -s "$RECORD" ]; then
+    printf 'FAIL  %s :: the run reached the injection tool\n' "$name"
+    sed 's/^/       | /' "$RECORD"
+    cat "$RECORD" >> "$REACHED_ANY"
+    fail=$((fail + 1))
+    return 0
+  fi
+  case "$out" in
+  *"$want_text"*) ;;
+  *)
+    printf 'FAIL  %s :: no %s in the output\n' "$name" "$want_text"
+    printf '%s\n' "$out" | sed 's/^/       | /'
+    fail=$((fail + 1))
+    return 0
+    ;;
+  esac
+  pass=$((pass + 1))
+  printf 'ok    %s\n' "$name"
+  note "$want_text"
+}
+
+# The plan: every action reports what it would do and returns before the device.
+case_args "a click reports its button, count and position" 0 "plan: click left x2 at 640 240" click left --at 640 240 --count 2 --dry-run
+case_args "a move reports its coordinates" 0 "plan: move 100 200" move 100 200 --dry-run
+case_args "a drag reports its span and step count" 0 "plan: drag left 1,2 -> 30,40 in 5 steps" drag 1 2 30 40 --button left --steps 5 --dry-run
+case_args "a scroll reports its amount and axis" 0 "plan: scroll 3 on y" scroll 3 --dry-run
+case_args "a horizontal scroll reports its axis" 0 "plan: scroll 3 on x" scroll 3 --horizontal --dry-run
+case_args "typing reports the text it would send" 0 "plan: type 'hello world'" type hello world --dry-run
+
+# The balancer: a bare code is paired for the caller, a written sequence is
+# accepted only when its presses and releases match.
+case_args "a bare key code is paired into a press and a release" 0 "plan: key 28:1 28:0" key 28 --dry-run
+case_args "a balanced sequence keeps its order" 0 "plan: key 29:1 46:1 46:0 29:0" key 29:1 46:1 46:0 29:0 --dry-run
+case_args "a press with no release is refused" 6 "unbalanced key sequence (1 down / 0 up)" key 29:1 --dry-run
+case_args "a release with no press is refused" 6 "unbalanced key sequence (0 down / 1 up)" key 29:0 --dry-run
+case_args "two presses with no release are refused" 6 "unbalanced key sequence (2 down / 0 up)" key 29:1 29:1 --dry-run
+case_args "an impossible key state is refused" 2 "state must be 0 or 1" key 29:2 --dry-run
+
+# Argument handling: the usage path succeeds and names the actions.
+case_args "the help path prints the usage" 0 "inject key C:S C:S ..." --help
+case_args "no action prints the usage" 0 "inject scroll N [--horizontal]" help
+
+# Nothing in this probe may have reached the injection tool, including the
+# fixtures that were refused — that is the difference between a probe and a test
+# that injects input.
+if [ -s "$REACHED_ANY" ]; then
+  printf 'FAIL  a run reached the injection tool\n'
+  sed 's/^/       | /' "$REACHED_ANY"
+  fail=$((fail + 1))
+else
+  printf 'ok    no run reached the injection tool\n'
+  pass=$((pass + 1))
+fi
+
+printf 'inject-probe: %s fixture(s) matched, %s changed\n' "$pass" "$fail"
+[ "$fail" = 0 ] || exit 1
+exit 0

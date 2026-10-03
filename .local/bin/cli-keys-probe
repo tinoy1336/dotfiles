@@ -1,0 +1,161 @@
+#!/usr/bin/env bash
+# cli-keys-probe — fixture table for cli-keys' credential report.
+#
+# Two properties of the `key` surface are invisible until they are wrong, and
+# both are the kind that a reader only notices after the fact: the default report
+# must describe a credential without printing any part of it, and an argument the
+# script cannot honour must be named by fingerprint rather than echoed — the
+# positions that take a NAME are exactly the ones a pasted VALUE lands in. A
+# regression in either turns a command that is safe to run in front of a log into
+# one that writes the credential into it.
+#
+# The prober drives the real script against a cache it builds itself under its own
+# scratch state directory. It never reads the real cache, the real vault session
+# or the login keyring, and it never reaches the network: every path it exercises
+# is a local read. The three provider variables are stripped from every
+# invocation, because the script reads the ENVIRONMENT before the cache — a
+# fixture cache is not enough while a live value is still exported, and the run
+# would then report the real credential instead of the fixture.
+#
+# No value is ever printed by this probe. It asserts on shape, length and a sha256
+# prefix, and compares the revealed value inside the shell.
+#
+# Usage: cli-keys-probe [--verbose]
+# Exit:  0 = every fixture matches, 1 = a fixture's outcome changed,
+#        2 = the probe itself failed.
+set -uo pipefail
+
+TOOL="${CLI_KEYS_PROBE_TOOL:-$HOME/.local/bin/cli-keys}"
+VERBOSE=0
+[ "${1:-}" = "--verbose" ] && VERBOSE=1
+
+[ -x "$TOOL" ] || {
+  printf 'cli-keys-probe: %s is not executable — THE PROBE DID NOT RUN\n' "$TOOL" >&2
+  exit 2
+}
+command -v jq >/dev/null 2>&1 || {
+  printf 'cli-keys-probe: jq is not available and the cache is read with it — THE PROBE DID NOT RUN\n' >&2
+  exit 2
+}
+
+SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/cli-keys-probe.XXXXXX")"
+cleanup() {
+  case "$(readlink -f "$SCRATCH")" in
+  "${TMPDIR:-/tmp}"/cli-keys-probe.*) rm -rf "$SCRATCH" ;;
+  esac
+}
+trap cleanup EXIT
+
+HOME_DIR="$SCRATCH/home"
+STATE_DIR="$SCRATCH/state"
+RUN_DIR="$SCRATCH/run"
+CACHE="$STATE_DIR/cli-keys/cache.json"
+mkdir -p "$HOME_DIR" "$STATE_DIR/cli-keys" "$RUN_DIR"
+
+# The fixture credential. It is generated here, is not a credential anywhere, and
+# is never printed: every assertion about it is a length, a hash prefix or a shell
+# comparison whose result is a word.
+FIXTURE="fixture-value-not-a-credential-0123456789"
+FIXTURE_LEN="${#FIXTURE}"
+FIXTURE_HASH="$(printf '%s' "$FIXTURE" | sha256sum | cut -c1-12)"
+NOW="$(date +%s)"
+
+jq -n --arg k "$FIXTURE" --argjson now "$NOW" \
+  '{fetched_epoch: $now, expires_epoch: ($now + 3600), keys: {DEEPSEEK_API_KEY: $k}}' > "$CACHE"
+chmod 600 "$CACHE"
+BEFORE_HASH="$(sha256sum "$CACHE" | cut -d' ' -f1)"
+BEFORE_MODE="$(stat -c '%a' "$CACHE")"
+
+pass=0
+fail=0
+note() {
+  if [ "$VERBOSE" = 1 ]; then printf '       %s\n' "$*"; fi
+}
+
+# Every invocation strips the provider variables: the script reads the environment
+# before the cache, so a live value would shadow the fixture and the run would
+# assert against a real credential.
+run() {
+  env -u DEEPSEEK_API_KEY -u OPENROUTER_API_KEY -u ZAI_API_KEY \
+    HOME="$HOME_DIR" XDG_STATE_HOME="$STATE_DIR" XDG_RUNTIME_DIR="$RUN_DIR" \
+    "$TOOL" "$@"
+}
+
+# case <name> <want-exit> <want-substring|-> <forbidden-substring|-> [args...]
+case_args() {
+  local name="$1" want_exit="$2" want_text="$3" forbidden="$4"
+  shift 4
+  local out status
+  out="$(run "$@" 2>&1)"
+  status=$?
+
+  if [ "$status" != "$want_exit" ]; then
+    printf 'FAIL  %s :: exit %s, wanted %s\n' "$name" "$status" "$want_exit"
+    printf '%s\n' "$out" | sed 's/^/       | /'
+    fail=$((fail + 1))
+    return 0
+  fi
+  if [ "$forbidden" != "-" ]; then
+    case "$out" in
+    *"$forbidden"*)
+      printf 'FAIL  %s :: the output carries text it must never print\n' "$name"
+      fail=$((fail + 1))
+      return 0
+      ;;
+    esac
+  fi
+  if [ "$want_text" != "-" ]; then
+    case "$out" in
+    *"$want_text"*) ;;
+    *)
+      printf 'FAIL  %s :: no %s in the output\n' "$name" "$want_text"
+      printf '%s\n' "$out" | sed 's/^/       | /'
+      fail=$((fail + 1))
+      return 0
+      ;;
+    esac
+  fi
+  pass=$((pass + 1))
+  printf 'ok    %s\n' "$name"
+  note "$want_text"
+}
+
+# The cache path has ONE definition and every reader asks for it, so this is also
+# the assertion that the fixture, and not the real cache, is what the run read.
+case_args "cache-path prints the path this probe built" 0 "$CACHE" - cache-path
+case_args "the report names the key and its source" 0 "source: cache" "$FIXTURE" key DEEPSEEK_API_KEY
+case_args "the report carries the hash prefix and the length" 0 "masked: sha256:$FIXTURE_HASH…  length: $FIXTURE_LEN chars" "$FIXTURE" key DEEPSEEK_API_KEY
+case_args "a key with no value anywhere is refused" 1 "no value for OPENROUTER_API_KEY" "$FIXTURE" key OPENROUTER_API_KEY
+case_args "a pasted value is not echoed" 2 "not echoed" "sk-a-pasted-value-that-must-not-appear" key sk-a-pasted-value-that-must-not-appear
+case_args "an unknown flag exits 2 with the usage" 2 "usage: cli-keys" - --bogus
+case_args "a subcommand with a trailing argument is refused" 2 - - cache-path extra
+case_args "status reports lengths without a value" 0 "DEEPSEEK_API_KEY" "$FIXTURE" status
+
+# The revealed form is the ONE route to the value. It is compared inside the shell
+# so the probe never prints it, and the default report above is checked against the
+# same string being absent.
+revealed="$(run key DEEPSEEK_API_KEY --reveal 2>/dev/null)"
+if [ "$revealed" = "$FIXTURE" ]; then
+  printf 'ok    --reveal is the route to the value itself\n'
+  pass=$((pass + 1))
+else
+  printf 'FAIL  --reveal did not return the cached value\n'
+  fail=$((fail + 1))
+fi
+
+# Serving a credential never rewrites the cache: no read path here may truncate,
+# rewrite or remove what a fetch could not replace.
+AFTER_HASH="$(sha256sum "$CACHE" | cut -d' ' -f1)"
+AFTER_MODE="$(stat -c '%a' "$CACHE")"
+if [ "$AFTER_HASH" = "$BEFORE_HASH" ] && [ "$AFTER_MODE" = "$BEFORE_MODE" ]; then
+  printf 'ok    the cache is byte-identical and still mode %s\n' "$BEFORE_MODE"
+  pass=$((pass + 1))
+else
+  printf 'FAIL  the cache changed: mode %s -> %s, content %s\n' "$BEFORE_MODE" "$AFTER_MODE" \
+    "$([ "$AFTER_HASH" = "$BEFORE_HASH" ] && printf 'same' || printf 'different')"
+  fail=$((fail + 1))
+fi
+
+printf 'cli-keys-probe: %s fixture(s) matched, %s changed\n' "$pass" "$fail"
+[ "$fail" = 0 ] || exit 1
+exit 0
