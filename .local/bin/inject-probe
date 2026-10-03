@@ -58,6 +58,29 @@ note() {
   if [ "$VERBOSE" = 1 ]; then printf '       %s\n' "$*"; fi
 }
 
+# Nothing below touches the device because the script's own plan path returns
+# before its preflight. That order is what this probe rests on, so it is read off
+# the source first: if a rewrite moved the plan after the preflight, the fixtures
+# would arm a real injection instead of reporting one.
+dry_run_precedes_preflight() {
+  awk '
+    /^  key\)/ { inkey = 1; next }
+    inkey && /^  [a-z*|-]+\)/ { inkey = 0 }
+    inkey && /DRYRUN/ && !dry { dry = NR }
+    inkey && /preflight/ && !pre { pre = NR }
+    END { printf "%s\n", (dry && pre && dry < pre) ? "yes" : "no" }
+  ' "$TOOL"
+}
+
+if [ "$(dry_run_precedes_preflight)" = yes ]; then
+  printf 'ok    the key action plans before it preflights\n'
+  pass=$((pass + 1))
+else
+  printf 'FAIL  the key action no longer plans before it preflights — this probe would arm a real injection\n'
+  printf 'inject-probe: 0 fixture(s) matched, 1 changed\n'
+  exit 1
+fi
+
 # case <name> <want-exit> <want-substring> [args...]
 # Every case also asserts that the run reached nothing: the plan is allowed to
 # print, the device is not.

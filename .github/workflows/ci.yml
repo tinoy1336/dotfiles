@@ -1,8 +1,13 @@
-# Seven checks over the tracked set. Each job runs a script from .github/scripts,
+# Eight checks over the tracked set. Each job runs a script from .github/scripts,
 # so the same run is available locally before a commit.
 #
 #   shellcheck          every tracked shell script, with the findings the tree
 #                       already carries recorded in shellcheck-allowlist.txt
+#   probes              the probes that decide their own fixtures — a scratch
+#                       home and a stub named for each command they must not
+#                       reach — so the guards they cover are exercised on a
+#                       runner with no compositor, no injection tool and no
+#                       credential store
 #   secrets             gitleaks over the tracked files and the whole history —
 #                       a leak belongs at push time, not in a reader's browser
 #   restore-rehearsal   a bare clone into a scratch HOME, then verification that
@@ -51,6 +56,19 @@ jobs:
           tar -xJf /tmp/shellcheck.tar.xz -C /tmp
       - name: Lint the tracked shell scripts
         run: .github/scripts/shellcheck.sh /tmp/shellcheck-v0.10.0/shellcheck
+
+  probes:
+    name: probes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # The credential probe reads its own fixture cache with jq. A runner without
+      # it would otherwise fail the probe's dependency check rather than the guard
+      # the probe exists to cover.
+      - name: jq is what the credential probe reads its fixture with
+        run: command -v jq || sudo apt-get install -y jq
+      - name: Run the probes that decide their own fixtures
+        run: .github/scripts/probes.sh
 
   secrets:
     name: secrets
