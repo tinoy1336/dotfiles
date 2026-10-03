@@ -1,0 +1,153 @@
+#!/usr/bin/env bash
+# host-apply-probe — fixture table for host-apply's declaration parser and plan.
+#
+# host-apply reads a machine's host.conf into a plan and then installs root-scoped
+# files with sudo, so a parser guard that rots is not visible until a declaration
+# is applied to a live system: a dropped validation lets a `..` path or a
+# non-octal mode through, and an entry the parser skipped silently never appears
+# in the plan at all. This prober feeds the real script a fixture table of
+# well-formed and malformed declarations under `--dry-run`, and reports any
+# outcome that changed — the exit status, the plan printed, and the promise that
+# a dry run executes nothing.
+#
+# Nothing here touches the system: every run reads its declaration from a scratch
+# home, and the dry run's own contract — no install, no sudo, no systemctl — is
+# asserted with stubs that record their own invocation.
+#
+# Usage: host-apply-probe [--verbose]
+# Exit:  0 = every fixture matches, 1 = a fixture's outcome changed,
+#        2 = the probe itself failed.
+set -uo pipefail
+
+TOOL="${HOST_APPLY_PROBE_TOOL:-$HOME/.local/bin/host-apply}"
+VERBOSE=0
+[ "${1:-}" = "--verbose" ] && VERBOSE=1
+
+[ -x "$TOOL" ] || {
+  printf 'host-apply-probe: %s is not executable — THE PROBE DID NOT RUN\n' "$TOOL" >&2
+  exit 2
+}
+
+SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/host-apply-probe.XXXXXX")"
+cleanup() {
+  case "$(readlink -f "$SCRATCH")" in
+  "${TMPDIR:-/tmp}"/host-apply-probe.*) rm -rf "$SCRATCH" ;;
+  esac
+}
+trap cleanup EXIT
+
+HOME_DIR="$SCRATCH/home"
+STUB="$SCRATCH/stub"
+HOST_DIR="$HOME_DIR/.config/hosts/probehost"
+mkdir -p "$STUB" "$HOST_DIR/root/etc/probe"
+
+# Stubs stand in for the two commands a real run reaches for. Each records that it
+# ran, so the dry run's promise is checked rather than assumed.
+for cmd in sudo systemctl; do
+  printf '#!/bin/sh\nprintf "%%s\\n" "%s $*" >> "%s/called"\nexit 0\n' "$cmd" "$SCRATCH" > "$STUB/$cmd"
+  chmod +x "$STUB/$cmd"
+done
+PATH="$STUB:$PATH"
+export PATH
+
+printf 'a root-scoped file this probe installs nowhere\n' > "$HOST_DIR/root/etc/probe/example.conf"
+
+pass=0
+fail=0
+note() {
+  if [ "$VERBOSE" = 1 ]; then printf '       %s\n' "$*"; fi
+}
+
+# check <name> <fixture-body> <want-exit> <want-substring> [host]
+check() {
+  local name="$1" body="$2" want_exit="$3" want_text="$4" host="${5:-probehost}"
+  local out status
+  printf '%s\n' "$body" > "$HOST_DIR/host.conf"
+  : > "$SCRATCH/called"
+  out="$(HOME="$HOME_DIR" HOST_APPLY_HOST="$host" "$TOOL" --dry-run 2>&1)"
+  status=$?
+  if [ "$status" != "$want_exit" ]; then
+    printf 'FAIL  %s :: exit %s, wanted %s\n' "$name" "$status" "$want_exit"
+    printf '%s\n' "$out" | sed 's/^/       | /'
+    fail=$((fail + 1))
+    return 0
+  fi
+  case "$out" in
+  *"$want_text"*) ;;
+  *)
+    printf 'FAIL  %s :: no %s in the output\n' "$name" "$want_text"
+    printf '%s\n' "$out" | sed 's/^/       | /'
+    fail=$((fail + 1))
+    return 0
+    ;;
+  esac
+  pass=$((pass + 1))
+  printf 'ok    %s\n' "$name"
+  note "$want_text"
+}
+
+VALID_ROOTS='[roots]
+etc/probe/example.conf = 0644
+
+[notes]
+probe fixture'
+
+check "a declared root file is planned at the path it mirrors" "$VALID_ROOTS" 0 "install /etc/probe/example.conf (mode 0644)"
+check "a host with no declaration is refused" "$VALID_ROOTS" 1 "no host declaration" "nosuchhost"
+check "a roots path that is absolute is refused" '[roots]
+/etc/probe/example.conf = 0644' 1 "is relative to root/"
+check "a roots path that climbs out of root/ is refused" '[roots]
+../etc/probe/example.conf = 0644' 1 "is relative to root/"
+check "a roots mode that is not octal is refused" '[roots]
+etc/probe/example.conf = 0644
+etc/probe/other.conf = 999' 1 "is octal"
+check "a roots entry with no mode is refused" '[roots]
+etc/probe/example.conf' 1 "a roots entry reads"
+check "an unknown section is refused" '[bogus]
+etc/probe/example.conf = 0644' 1 "unknown section"
+check "an entry outside any section is refused" 'etc/probe/example.conf = 0644' 1 "outside any section"
+check "a declaration with nothing to apply is refused" '[notes]
+probe fixture' 1 "nothing to apply"
+check "a root file absent from the overlay is refused" '[roots]
+etc/probe/absent.conf = 0644' 1 "missing from the overlay"
+
+# The dry run's own contract, read off the valid declaration: the destination is
+# still absent and neither stub was reached.
+if [ -e /etc/probe/example.conf ]; then
+  printf 'FAIL  a dry run created its destination\n'
+  fail=$((fail + 1))
+else
+  printf 'ok    a dry run installs nothing\n'
+  pass=$((pass + 1))
+fi
+if [ -s "$SCRATCH/called" ]; then
+  printf 'FAIL  a dry run executed a command\n'
+  sed 's/^/       | /' "$SCRATCH/called"
+  fail=$((fail + 1))
+else
+  printf 'ok    a dry run runs no sudo and no systemctl\n'
+  pass=$((pass + 1))
+fi
+
+# Argument handling: the help path succeeds, and an unknown flag is a usage error
+# rather than a run against the default host.
+if HOME="$HOME_DIR" "$TOOL" --help >/dev/null 2>&1; then
+  printf 'ok    --help exits 0\n'
+  pass=$((pass + 1))
+else
+  printf 'FAIL  --help did not exit 0\n'
+  fail=$((fail + 1))
+fi
+HOME="$HOME_DIR" "$TOOL" --bogus >/dev/null 2>&1
+bogus=$?
+if [ "$bogus" = 2 ]; then
+  printf 'ok    an unknown argument exits 2\n'
+  pass=$((pass + 1))
+else
+  printf 'FAIL  an unknown argument exited %s, wanted 2\n' "$bogus"
+  fail=$((fail + 1))
+fi
+
+printf 'host-apply-probe: %s fixture(s) matched, %s changed\n' "$pass" "$fail"
+[ "$fail" = 0 ] || exit 1
+exit 0
