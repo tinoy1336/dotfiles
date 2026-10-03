@@ -57,13 +57,11 @@
 # than left untracked, so a `git clean` in this work tree cannot delete them
 /.config/hypr/rules/
 !/.config/kitty/
-!/.config/haruna/
 !/.config/yad/
 !/.config/htop/
 !/.config/yay/
 !/.config/easyeffects/
 !/.config/tlpui/
-!/.config/qalculate/
 !/.config/xdg-desktop-portal/
 !/.config/wireplumber/
 !/.config/gtk-3.0/
@@ -338,9 +336,6 @@ __pycache__/
 # 6j. user data, media and other work trees at the home root
 /aur/
 /dev/
-# the pre-rename backup of the old shell tree — its count is machine state, so
-# no part of it travels; every ags-* link inside it is dangling
-/migration-backup-2026-09-23/
 /downloads/
 /documents/
 /desktop/
