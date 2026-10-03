@@ -14,7 +14,10 @@
 # (including -n probes, -A askpass flows, interactive prompts) is untouched.
 # Note: sudo applies umask 022 to commands it runs; hyprpm's own umask is
 # 077 (state files land as 600 otherwise). Match that here.
-if [ $# -ge 2 ] && [[ "${@: -1}" == /var/cache/hyprpm/* ]]; then
+# `${!#}` reads the last argument. The slice form it replaces is an array
+# expansion inside [[ ]], where the elements concatenate rather than one of them
+# being the subject of the comparison.
+if [ $# -ge 2 ] && [[ "${!#}" == /var/cache/hyprpm/* ]]; then
     umask 022
     # hyprpm installs cache files with -o 0 -g 0 (root ownership); run as tinoy
     # that chown fails (EPERM). The cache tree is user-owned — strip the
