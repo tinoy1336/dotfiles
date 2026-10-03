@@ -428,8 +428,10 @@ aborts unless that window class is active, `--dry-run` prints the plan.
 build`, `make`), returning one-line redirect guidance. It skips segments with
 pipes/redirects/heredocs/`$`vars/globs and allows `tail -f`.
 *Spec:* blocks are logged to `~/.local/share/pi-hooks/log.jsonl` under source
-`command-guard` (rows predating the RAW-INPUT family carry `bash-guard`;
-`status-metrics.ts` counts both) and read back by the pi-tool-burn report.
+`command-guard`; rows predating the RAW-INPUT family carry `bash-guard`, and
+nothing writes that source any more, so `status-metrics.ts` counts a blocked call
+under `command-guard` and `focus-gate` only, and only when the row's kind is
+`block`. Both are read back by the pi-tool-burn report.
 Redirect contracts name a tool the calling session actually has: file content →
 `read`; search → `ctx_execute` or the `grep` tool — **the `grep` tool exists in
 subagent sessions but not in the interactive session**; build/checker → the
@@ -956,7 +958,8 @@ durable and re-derivable.
 `PI_SUBAGENT_CHILD_AGENT`, `PI_SUBAGENT_CHILD_INDEX`,
 `PI_SUBAGENT_ORCHESTRATOR_SESSION_ID`, `PI_SUBAGENT_PARENT_SESSION`,
 `PI_SUBAGENT_RUN_ID`, `PI_SUBAGENT_SUPERVISOR_CHANNEL_DIR`; imports
-`lib/tool-header.ts`.
+`@tinoy/pi-ext-lib` for its header builder and the argument readers that header
+is drawn with.
 *Live-view gap:* the durable branch write is accompanied by an
 `rpiv-todo:external-refresh` event, but nothing in the installed
 `@juicesharp/rpiv-todo` subscribes to it. The package is patched on this machine
@@ -985,16 +988,15 @@ whose table lives at `~/.pi/agent/tariff.json` — see §6) and
 `@earendil-works/pi-tui` to extensions, so a header must be a duck-typed
 component with `render(width)` and `invalidate()`).
 They are not discovered: discovery matches `*.ts` at the top level and
-`*/index.ts` in a subdirectory, and `lib/` has neither. They load only as
-imported dependencies of an extension that does load. `lib/hook-log.ts` and
-`lib/tool-header.ts` run in children — the first through `command-guard`,
-`focus-gate`, `orphan-repair`, `child-prompt-freeze` and others, the second
-through `image-read`, `nf`, `build` and others. `lib/focus-state.ts` reaches
-children too, through `focus-gate.ts` (on `defaultExtensions`), not through
-`desktop-notify.ts` (parent-only). `lib/pause-state.ts` is reached by `pause.ts`.
-The local copies of `hook-log.ts`, `focus-state.ts`, `tariff.ts` and
-`pause-state.ts` are unreferenced now that their importers are packages; the one
-local file still imported from here is `tool-header.ts`, by `sudo-approve.ts`.
+`*/index.ts` in a subdirectory, and `lib/` has neither. They are the local
+copies of five modules whose live implementation is the package's: every
+consumer is a package, each package resolves its own copy, so what loads at
+runtime is the copy under `~/.pi/agent/npm/node_modules/@tinoy/`, never these
+files, and nothing under this directory imports them. The last local importer,
+`sudo-approve.ts`, is now `@tinoy/pi-sudo-approve` and imports the package like
+the rest. One caller does reach back in: `~/.pi/agent/patches/pi-subagents/verify-pause-aware-control.mjs`
+imports `lib/pause-state.ts` to build the pause state the patched
+`subagent-control.js` reads.
 `hook-log.ts` and `tool-header.ts` are published too in `@tinoy/pi-ext-lib`
 (`src/hook-log.ts`, `src/tool-header.ts`), beside the system-prompt seam
 (`src/system-prompt.ts`), which has no local counterpart: canon composes its tail
