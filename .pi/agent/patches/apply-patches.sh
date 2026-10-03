@@ -53,7 +53,7 @@ trim_log() {
 	local lines
 	lines=$(wc -l < "$LOG" 2>/dev/null || printf '0')
 	if [ "$lines" -gt "$MAX_LOG_LINES" ]; then
-		tail -n 1000 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG"
+		tail -n 1000 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG" || rm -f "$LOG.tmp"
 	fi
 }
 
