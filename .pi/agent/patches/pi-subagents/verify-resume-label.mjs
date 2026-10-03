@@ -15,10 +15,31 @@
 // drive the same envelope through it.
 import { createJiti } from "/home/tinoy/.pi/agent/npm/node_modules/jiti/lib/jiti.mjs";
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 
 const PKG = process.env.PI_SUBAGENTS_PKG ?? "/home/tinoy/.pi/agent/npm/node_modules/pi-subagents";
-const FLEET = "/home/tinoy/.pi/agent/extensions/fleet/index.ts";
 const jiti = createJiti(import.meta.url);
+
+// Where the fleet extension source is. pi loads it as the npm package
+// `@tinoy/pi-fleet` (settings.json registers the `npm:@tinoy/pi-fleet` entry), so
+// the code that runs is the installed copy in pi's npm install root —
+// ~/.pi/agent/extensions/fleet holds that extension's config, not its source.
+// Resolving through the package keeps this rig honest across a move or a version
+// bump: it fails loudly here, instead of after the assertions have passed.
+const PI_NPM_ROOT = "/home/tinoy/.pi/agent/npm/node_modules";
+const resolveFromPiNpm = createRequire(`${PI_NPM_ROOT}/package.json`);
+const fleetSource = (file) => {
+	const specifier = file ? `@tinoy/pi-fleet/${file}` : "@tinoy/pi-fleet";
+	try {
+		return resolveFromPiNpm.resolve(specifier);
+	} catch {
+		throw new Error(
+			`offline rig: cannot resolve "${specifier}" from ${PI_NPM_ROOT}. pi runs the fleet ` +
+				`extension from the installed package that settings.json registers as "npm:@tinoy/pi-fleet"; ` +
+				`install it there — never skip the fleet half of the check.`,
+		);
+	}
+};
 
 const ok = (label, cond, extra = "") => {
 	console.log(`${cond ? "PASS" : "FAIL"}  ${label}${extra ? " :: " + extra : ""}`);
@@ -28,8 +49,8 @@ const ok = (label, cond, extra = "") => {
 // The hiring side: every resume envelope the fleet sends names the crew member.
 // The payload keys are read out of the fleet source, so the envelope driven below
 // is the fleet's own shape and not a rig invention.
-const fleetSource = readFileSync(FLEET, "utf8");
-const resumeCalls = [...fleetSource.matchAll(/rpc\(pi, "resume", \{([^}]*)\}/g)].map((match) => match[1]);
+const fleetText = readFileSync(fleetSource(), "utf8");
+const resumeCalls = [...fleetText.matchAll(/rpc\(pi, "resume", \{([^}]*)\}/g)].map((match) => match[1]);
 ok("fleet sends resume envelopes", resumeCalls.length >= 2, `${resumeCalls.length} call sites`);
 for (const [index, keys] of resumeCalls.entries()) {
 	ok(`fleet resume call ${index + 1} carries a label`, /\blabel:/.test(keys), keys.trim().replace(/\s+/g, " "));

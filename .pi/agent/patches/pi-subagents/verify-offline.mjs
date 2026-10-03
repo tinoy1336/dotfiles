@@ -8,10 +8,31 @@
 // the job's `steps`, so a labelled step on disk is a labelled step in the widget.
 import { createJiti } from "/home/tinoy/.pi/agent/npm/node_modules/jiti/lib/jiti.mjs";
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 
 const PKG = "/home/tinoy/.pi/agent/npm/node_modules/pi-subagents";
-const FLEET = "/home/tinoy/.pi/agent/extensions/fleet";
 const jiti = createJiti(import.meta.url);
+
+// Where the fleet extension source is. pi loads it as the npm package
+// `@tinoy/pi-fleet` (settings.json registers the `npm:@tinoy/pi-fleet` entry), so
+// the code that runs is the installed copy in pi's npm install root —
+// ~/.pi/agent/extensions/fleet holds that extension's config, not its source.
+// Resolving through the package keeps this rig honest across a move or a version
+// bump: it fails loudly here, instead of after the assertions have passed.
+const PI_NPM_ROOT = "/home/tinoy/.pi/agent/npm/node_modules";
+const resolveFromPiNpm = createRequire(`${PI_NPM_ROOT}/package.json`);
+const fleetSource = (file) => {
+	const specifier = file ? `@tinoy/pi-fleet/${file}` : "@tinoy/pi-fleet";
+	try {
+		return resolveFromPiNpm.resolve(specifier);
+	} catch {
+		throw new Error(
+			`offline rig: cannot resolve "${specifier}" from ${PI_NPM_ROOT}. pi runs the fleet ` +
+				`extension from the installed package that settings.json registers as "npm:@tinoy/pi-fleet"; ` +
+				`install it there — never skip the fleet half of the check.`,
+		);
+	}
+};
 
 const ok = (label, cond, extra = "") => {
 	console.log(`${cond ? "PASS" : "FAIL"}  ${label}${extra ? " :: " + extra : ""}`);
@@ -78,7 +99,7 @@ ok("spawn schema still declares agent/task", typeof props.agent === "object" && 
 
 // The hiring side: the envelope the foreman's `fleet` tool sends to the spawn RPC
 // must name the crew member.
-const launch = await jiti.import(`${FLEET}/launch.ts`);
+const launch = await jiti.import(fleetSource("launch.ts"));
 const envelope = launch.spawnParams("task text", 60_000, { worker: "delphine", scope: "recon", owns: ["a/**"], exclusive: [] });
 ok("fleet spawn envelope carries label = the crew name", envelope.label === "delphine", String(envelope.label));
 ok("fleet spawn envelope carries the crew binding", envelope.extensionBindings?.[launch.BINDING_NAMESPACE]?.worker === "delphine");

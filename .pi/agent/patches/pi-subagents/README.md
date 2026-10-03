@@ -104,12 +104,15 @@ run) and asserts the task text the worker receives: the protocol line naming the
 crew member and its scope, then the board-entry form carrying that same name.
 The stub redirects HOME to a scratch directory first, because the mode file, the
 roster and the claim roots are derived from HOME at module load — the real
-foreman state is never touched. Exit code 0 = pass.
+foreman state is never touched. The fleet source it loads is resolved at run time
+from pi's npm install root (`@tinoy/pi-fleet`), so the rig loads the package the
+session actually runs and fails — naming the specifier and the root searched —
+when that package is not installed. Exit code 0 = pass.
 
 ## When it takes effect
 
 pi loads the package at session start, so the change appears in a NEW pi session.
-The fleet side (`extensions/fleet/launch.ts` passes `label: binding.worker`) needs
+The fleet side (`@tinoy/pi-fleet/launch.ts` passes `label: binding.worker`) needs
 no change.
 
 ## If a package update moves the code
@@ -132,7 +135,7 @@ unlabelled row says nothing about who owns it.
 Files touched: `agents/worker.md`, in the `Working rules` list. That file is the
 worker agent's definition (`systemPromptMode: replace`), so the rule is in the
 agent's own prompt for every run, and the hire-time task line the `fleet` tool
-prepends (`extensions/fleet/index.ts`, `prependProtocol`) spells the same form
+prepends (`@tinoy/pi-fleet/index.ts`, `prependProtocol`) spells the same form
 out with the name the worker was actually hired under.
 
 ## Is it applied?

@@ -8,6 +8,7 @@
 // from HOME at module load: the real foreman state is never touched.
 import { createJiti } from "/home/tinoy/.pi/agent/npm/node_modules/jiti/lib/jiti.mjs";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -18,7 +19,29 @@ mkdirSync(join(HOME, ".local", "pi", "foreman", "roster"), { recursive: true });
 writeFileSync(join(HOME, ".local", "pi", "foreman", "roster", `mode-${SID}.json`), `${JSON.stringify({ on: true, sessionId: SID, since: Date.now() })}\n`);
 
 const jiti = createJiti(import.meta.url);
-const fleet = await jiti.import("/home/tinoy/.pi/agent/extensions/fleet/index.ts");
+
+// Where the fleet extension source is. pi loads it as the npm package
+// `@tinoy/pi-fleet` (settings.json registers the `npm:@tinoy/pi-fleet` entry), so
+// the code that runs is the installed copy in pi's npm install root —
+// ~/.pi/agent/extensions/fleet holds that extension's config, not its source.
+// Resolving through the package keeps this rig honest across a move or a version
+// bump: it fails loudly here, instead of after the assertions have passed.
+const PI_NPM_ROOT = "/home/tinoy/.pi/agent/npm/node_modules";
+const resolveFromPiNpm = createRequire(`${PI_NPM_ROOT}/package.json`);
+const fleetSource = (file) => {
+	const specifier = file ? `@tinoy/pi-fleet/${file}` : "@tinoy/pi-fleet";
+	try {
+		return resolveFromPiNpm.resolve(specifier);
+	} catch {
+		throw new Error(
+			`offline rig: cannot resolve "${specifier}" from ${PI_NPM_ROOT}. pi runs the fleet ` +
+				`extension from the installed package that settings.json registers as "npm:@tinoy/pi-fleet"; ` +
+				`install it there — never skip the fleet half of the check.`,
+		);
+	}
+};
+
+const fleet = await jiti.import(fleetSource());
 
 let fail = 0;
 const ok = (name, cond, extra = "") => {
