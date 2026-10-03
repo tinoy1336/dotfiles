@@ -12,7 +12,7 @@
     "npm:@juicesharp/rpiv-todo",
     "npm:cc-safety-net",
     "npm:pi-markdown-preview",
-    "npm:@tinoy/pi-canon",
+    "npm:@tinoy/pi-canon@0.7.0",
     "npm:@tinoy/pi-cache-prefix-log",
     "npm:@tinoy/pi-child-request-dump",
     "npm:@tinoy/pi-child-prompt-freeze",
