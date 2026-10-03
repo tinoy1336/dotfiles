@@ -129,14 +129,18 @@ hid_rebind() { # step 1: detach and reattach the hid_asus driver
 }
 
 usb_cycle() { # step 2: power-cycle the USB port (authorized toggle = replug)
-    local usb="$1" auth="/sys/bus/usb/devices/$usb/authorized" h i
+    local usb="$1"
+    # The authorized path is built from the device name, so the two assignments
+    # cannot share one `local`: every expansion on a command line happens before
+    # the builtin runs, and the later name would read whatever `usb` held outside.
+    local auth="/sys/bus/usb/devices/$usb/authorized" h
     say "USB power cycle of $usb (LEDs blink off for ~2s)"
     [[ -w "$auth" ]] || fail "no write access to $auth"
     echo 0 > "$auth"
     sleep 2
     echo 1 > "$auth"
     say "waiting for re-enumeration..."
-    for i in $(seq 1 40); do
+    for _ in $(seq 1 40); do
         h=$(hid_children "$usb" | head -1)
         [[ -n "$h" ]] && break
         sleep 0.5
