@@ -197,7 +197,7 @@
 \ No newline at end of file
 --- a/src/runs/foreground/execution.js
 +++ b/src/runs/foreground/execution.js
-@@ -9,7 +9,7 @@
+@@ -9,8 +9,8 @@
  import { ensureArtifactsDir, formatOutputArtifactContent, getArtifactPaths, writeArtifact, writeMetadata, } from "../../shared/artifacts.js";
  import { createChildTranscriptWriter } from "../../shared/child-transcript.js";
  import { DEFAULT_MAX_OUTPUT, INTERCOM_DETACH_REQUEST_EVENT, INTERCOM_DETACH_RESPONSE_EVENT, truncateOutput, } from "../../shared/types.js";
@@ -205,6 +205,7 @@
 +import { DEFAULT_CONTROL_CONFIG, buildControlEvent, claimControlNotification, deriveActivityState, shouldEmitOpenToolAttention, shouldNotifyControlEvent, PAUSE_SUPPRESSION_REASON, formatPauseSuppressionMessage, takePauseSuppressedControlEvents, } from "../shared/subagent-control.js";
  import { getFinalOutput, findLatestSessionFile, detectSubagentError, hasEmptyTerminalAssistantResponse, formatEmptyTerminalAssistantResponseError, extractToolArgsPreview, extractTextFromContent, MAX_STREAMED_RECENT_TOOLS, boundStreamedRecentTools, boundStreamedRecentOutput, boundStreamedToolCalls, } from "../../shared/utils.js";
  import { resolveSkillsWithFallback } from "../../agents/skills.js";
+ import { createPartialOutputTracker, formatPartialOutput } from "../shared/partial-output.js";
  import { effectiveToolTimeoutMs, formatToolTimeoutMessage, resolveToolTimeoutMs, toolTimeoutCallKey, toolTimeoutFromEnv } from "../shared/tool-timeout.js";
 @@ -377,6 +377,22 @@
          pendingControlEvents.push(event);
@@ -239,8 +240,8 @@
              const idleState = deriveActivityState({
 --- a/src/runs/background/subagent-runner.js
 +++ b/src/runs/background/subagent-runner.js
-@@ -30,7 +30,7 @@
- import { captureSingleOutputSnapshot, extractChildWrittenOutput, finalizeSingleOutput, formatSavedOutputReference, injectOutputPathSystemPrompt, injectSingleOutputInstruction, resolveSingleOutput } from "../shared/single-output.js";
+@@ -27,7 +27,7 @@
+ import { timedOutRunSummary } from "../shared/partial-output.js";
  import { runSetupCommand } from "../shared/worktree-setup-command.js";
  import { DEFAULT_MAX_OUTPUT, SUBAGENT_LIFECYCLE_ARTIFACT_VERSION, truncateOutput, } from "../../shared/types.js";
 -import { DEFAULT_CONTROL_CONFIG, buildControlEvent, deriveActivityState, claimControlNotification, formatControlIntercomMessage, formatControlNoticeMessage, shouldEmitOpenToolAttention, } from "../shared/subagent-control.js";

@@ -18,11 +18,15 @@
                      task: taskText,
 +                    ...(displayLabel ? { label: displayLabel } : {}),
                      ...(agentConfig.runner ? { runner: agentConfig.runner } : {}),
-@@ -1837,3 +1841,3 @@
+@@ -2030,7 +2030,7 @@
+             chainStepCount: 1,
              ...(lane ? { lane } : {}),
+             ...(launcher ? { launcher } : {}),
 -            steps: [{ agent, status: "pending", ...(lane ? { lane } : {}), ...(model ? { model } : {}), ...(contextLimit !== undefined ? { contextLimit } : {}) }],
 +            steps: [{ agent, status: "pending", ...(lane ? { lane } : {}), ...(model ? { model } : {}), ...(contextLimit !== undefined ? { contextLimit } : {}), ...(displayLabel ? { label: displayLabel } : {}) }],
          }, path.join(asyncDir, "status.json"), launchParentSessionId, (proof) => emitProcessTerminalEvent(ctx, proof), (runnerProcessInstanceId) => params.activeAsyncCapacity?.markStarted(runnerProcessInstanceId), params.requestedCwd ?? runnerCwd);
+     }
+     catch (error) {
 --- a/src/tui/render.js
 +++ b/src/tui/render.js
 @@ -1043,3 +1043,15 @@
