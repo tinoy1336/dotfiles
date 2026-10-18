@@ -23,19 +23,44 @@
 // (`identity.identityClaimLive`): without it the pass releases the claim as
 // provably gone and the roster row is `retired` before the resume is even tried.
 
-// jiti is the loader because `fleet/index.ts` imports `fleet/board.ts`, which
-// imports the rpiv-todo package's TypeScript; plain type-stripping refuses those.
-// The loader is resolved through the extensions directory, because this rig lives
-// outside the tree that holds the node_modules link. Run:
+// jiti is the loader because the fleet package's `board.ts` pulls in package
+// TypeScript; plain type-stripping refuses node_modules. The loader is resolved
+// through the extensions directory, because this rig lives outside the tree that
+// holds the node_modules link. Run:
 //   node ~/.pi/agent/test-rigs/fleet-assign.probe.ts
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-const AGENT_DIR = `${process.env.HOME}/.pi/agent`
+const REAL_HOME = process.env.HOME ?? ""
+const AGENT_DIR = `${REAL_HOME}/.pi/agent`
+const PACKAGES_DIR = `${AGENT_DIR}/npm/node_modules/@tinoy`
+const FLEET_PKG = `${PACKAGES_DIR}/pi-fleet`
+const IO_GUARD_PKG = `${PACKAGES_DIR}/pi-io-guard`
 const require = createRequire(`${AGENT_DIR}/extensions/`)
-const { createJiti } = require("jiti") as { createJiti: (url: string) => { import: (p: string) => Promise<never> } }
+
+// `typebox` is a peer dependency of the fleet package, supplied by the pi
+// installation rather than by the agent's own node_modules tree, so the loader
+// has to be told where it is. Candidate 1 covers a tree that carries its own copy.
+function resolveTypebox(): string {
+	const candidates = [
+		`${FLEET_PKG}/`,
+		`${REAL_HOME}/.local/lib/node_modules/@earendil-works/pi-coding-agent/`,
+		`/usr/lib/node_modules/@earendil-works/pi-coding-agent/`,
+	]
+	for (const base of candidates) {
+		try {
+			return createRequire(base).resolve("typebox")
+		} catch {}
+	}
+	console.error("the rig could not resolve typebox from any candidate pi installation")
+	process.exit(2)
+}
+
+const { createJiti } = require("jiti") as {
+	createJiti: (url: string, opts?: { alias?: Record<string, string> }) => { import: (p: string) => Promise<never> }
+}
 
 const WORKER = "alice"
 const SCOPE = "probe-scope"
@@ -60,10 +85,10 @@ process.env.PI_SUBAGENTS_TEMP_ROOT = TEMP_ROOT
 mkdirSync(FLEET_CONFIG_DIR, { recursive: true })
 writeFileSync(join(FLEET_CONFIG_DIR, "config.json"), JSON.stringify({ reuseWindowSeconds: 3600 }))
 
-const jiti = createJiti(`${AGENT_DIR}/test-rigs/`)
-const roster = await jiti.import(`${AGENT_DIR}/extensions/fleet/roster.ts`)
-const mode = await jiti.import(`${AGENT_DIR}/extensions/fleet/mode.ts`)
-const identity = await jiti.import(`${AGENT_DIR}/extensions/io-guard/identity.ts`) as { procStartTime: (pid: number) => string | null }
+const jiti = createJiti(`${AGENT_DIR}/test-rigs/`, { alias: { typebox: resolveTypebox() } })
+const roster = await jiti.import(`${FLEET_PKG}/roster.ts`)
+const mode = await jiti.import(`${FLEET_PKG}/mode.ts`)
+const identity = await jiti.import(`${IO_GUARD_PKG}/identity.ts`) as { procStartTime: (pid: number) => string | null }
 
 // ── the fake pi ──────────────────────────────────────────────────────────────
 type Reply = { ok: boolean; data?: unknown; error?: { code?: string; message?: string } }
@@ -127,7 +152,7 @@ if (!armed.ok) {
 	console.error(`the rig could not arm foreman mode: ${armed.error}`)
 	process.exit(2)
 }
-const fleet = await jiti.import(`${AGENT_DIR}/extensions/fleet/index.ts`)
+const fleet = await jiti.import(`${FLEET_PKG}/index.ts`)
 fleet.default(pi)
 if (!mode.isOn(SESSION)) {
 	console.error("foreman mode did not arm on this session id")
