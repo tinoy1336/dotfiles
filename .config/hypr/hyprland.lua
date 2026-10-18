@@ -13,7 +13,7 @@ local mainBrowser = "firefox"
 local altBrowser = "chromium"
 local musicApp = "youtube-music"
 
-local volumeStep = "5%"
+local volumeStep = "2%"
 local brightnessStep = "5%"
 
 -- GPU-wake pins: the RTX 4060 Max-Q is runtime-suspended, and session-wide env
