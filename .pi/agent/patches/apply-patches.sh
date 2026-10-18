@@ -169,8 +169,6 @@ apply_entry() { # name package-dir patch-file marker-spec
 	fi
 
 	entry_dir="$(dirname "$patchfile")"
-	version="$(package_version "$pkg")"
-	[ -n "$version" ] || version="unknown"
 	targets="$(patch_targets "$patchfile")"
 
 	# 1. validate against the installed tree, and stage copies of exactly the bytes that
@@ -258,6 +256,24 @@ apply_entry() { # name package-dir patch-file marker-spec
 			continue
 		fi
 		break
+	done
+
+	# The version keys the rollback copy, so it is read from the SETTLED tree the dry run
+	# just passed: a package.json still being unpacked reads empty, and an empty version
+	# keyed as "unknown" both leaves a rollback without the bytes of its own version and
+	# stops a later real version from ever being saved, because the copy is written
+	# no-clobber. An unreadable version on a settled tree is reported, never keyed.
+	version=""
+	attempt=1
+	while [ -z "$version" ]; do
+		version="$(package_version "$pkg")"
+		[ -n "$version" ] && break
+		if [ "$attempt" -ge "$TRANSIENT_ATTEMPTS" ]; then
+			record_failure "$name" "package version unreadable from $pkg/package.json, so the rollback copy cannot be keyed" ""
+			return
+		fi
+		attempt=$((attempt + 1))
+		sleep "$TRANSIENT_WAIT"
 	done
 
 	applyout="$(patch -p1 --batch --fuzz=0 -d "$STAGE" < "$patchfile" 2>&1)"

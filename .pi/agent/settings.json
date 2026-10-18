@@ -56,7 +56,7 @@
     ],
     "agentOverrides": {
       "oracle": {
-        "model": "deepseek-v4-pro",
+        "model": "deepseek-flash",
         "tools": [
           "read",
           "grep",

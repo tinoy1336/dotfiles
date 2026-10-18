@@ -57,7 +57,11 @@ rather than assumed. A stale copy also makes a rollback restore the wrong bytes.
    `<patch-dir>/pre-patch/<name>.<package-version>` (no-clobber, so the first backup of a
    version is kept), and only then renames each patched copy over its original. A failed
    step leaves the package byte-identical, and a concurrent reader never sees a half-written
-   file.
+   file. The version in that name is read from the tree the dry run settled, retried while
+   `package.json` is still unreadable, and a version still unreadable then is REPORTED
+   instead of being keyed `unknown`: an unknown key both leaves a rollback copy that is not
+   its version's packaged bytes and, because the copy is written no-clobber, stops the real
+   version's copy from ever being saved.
 5. verifies the markers again in the installed files.
 
 The entries re-applied by one run are announced together, in a single notification: an
