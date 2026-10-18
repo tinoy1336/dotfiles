@@ -44,7 +44,8 @@ Two more sources feed the same list:
 
 A subdirectory is an extension unit only if it has an `index.ts` (or a
 `package.json` declaring `pi.extensions`). That single rule is what made
-`fleet/` and `io-guard/` units while `lib/` and `subagent/` are not; `fleet/` and
+`fleet/` and `io-guard/` units while `lib/` and `subagent/` are not (`lib/` keeps
+one library, §5); `fleet/` and
 `io-guard/` now hold documentation and configuration only — no `.ts` file at all —
 so nothing under this directory registers through that rule any more, and the
 code they held lives in the `pi-extensions` checkout as three packages (§6):
@@ -121,8 +122,7 @@ other path. The child-side sections below name the markers they read.
 - `agentOverrides.worker.subagentOnlyExtensions` adds **eight** more, worker
   children only: the `context-mode` pi adapter, `pi-web-access`,
   `@tinoy/pi-todo-parent/index.ts`, `@tinoy/pi-drift-anchor/index.ts`,
-  `sudo-approve` (the one entry still a local file in this directory, because its
-  package is not published yet), `@tinoy/pi-io-guard/index.ts`,
+  `@tinoy/pi-sudo-approve/index.ts`, `@tinoy/pi-io-guard/index.ts`,
   `@tinoy/pi-build/index.ts`, and the canon
   package's entry file (`~/.pi/agent/npm/node_modules/@tinoy/pi-canon/index.ts` —
   canon is an installed package, never a file in this directory).
@@ -219,12 +219,14 @@ with "absent → ambient discovery preserved"; it is not a direct observation.
 `worker` agent, which is the only agent carrying extra paths.
 
 Read every file name in the table below as the package's ENTRY FILE, not as a
-file in this directory: the set is consumed as twenty-two packages
-(`@tinoy/pi-*`, listed in settings `packages[]`) plus `sudo-approve.ts`, which
-is still a local file. The three that were split out of the old `@tinoy/pi-fleet`
+file in this directory: the set is consumed as twenty-three packages
+(`@tinoy/pi-*`, listed in settings `packages[]`), and no top-level `.ts` file is
+left in this directory — the last one, `sudo-approve.ts`, became
+`@tinoy/pi-sudo-approve` and is named here by its package entry. The three that
+were split out of the old `@tinoy/pi-fleet`
 package are the ones named in full — `@tinoy/pi-build/index.ts`,
-`@tinoy/pi-fleet/index.ts`, `@tinoy/pi-io-guard/index.ts` — because they are the
-trio installed as `file:` links rather than as registry copies (§6). §6 names the
+`@tinoy/pi-fleet/index.ts`, `@tinoy/pi-io-guard/index.ts` — because their package
+boundary is the load boundary (§6). §6 names the
 packages and the two data files they read from this machine.
 
 | Entry | Registers | Parent | Child | Deciding mechanism |
@@ -250,15 +252,16 @@ packages and the two data files they read from this machine.
 | `probe.ts` | `probe` tool | yes | no | ambient only |
 | `read-staleness.ts` | `tool_result` hook | yes | no | ambient only |
 | `status-metrics.ts` | footer renderer | yes | no | ambient only |
-| `sudo-approve.ts` | `sudo_approve` tool | yes | worker only | ambient + `worker.subagentOnlyExtensions` |
+| `@tinoy/pi-sudo-approve/index.ts` | `sudo_approve` tool | yes | worker only | settings `packages` + `worker.subagentOnlyExtensions` |
 | `todo-parent.ts` | `todo_parent` tool | yes | worker only | ambient + `worker.subagentOnlyExtensions` |
-| `lib/*.ts` | nothing | n/a | n/a | not an extension unit — see §5 |
+| `lib/pause-state.ts` | nothing (a library) | n/a | n/a | loaded BY PATH by the patched pi-subagents control gate (§5) |
 | `subagent/config.json` | nothing | n/a | n/a | pi-subagents config, not an extension — see §5 |
 
-Totals: 23 extension entries — 22 packages plus the one top-level `.ts` unit
-(`sudo-approve.ts`), with no subdirectory unit left — and a child set of 11
+Totals: 23 extension entries — 23 packages, with no local unit at all (neither a
+top-level `.ts` file nor a subdirectory carrying an `index.ts`) — and a child set
+of 11
 (defaults) + 0–8 (agent-specific). `fleet/` and `io-guard/` hold no code at all,
-and `lib/*.ts` are not units (§5).
+and `lib/` now holds exactly one library (§5).
 
 ---
 
@@ -474,7 +477,7 @@ positive), `run.sh <app>` (the `TINSHELL_BUNDLE_WARM=1` build-only form passes t
 the entry's `unless` regex), `ags run`, and `ags`/`tinshell-route.sh` open/toggle
 requests. Notifications are never gated.
 *Propagation:* the state file carries the mode, and every session process also
-WATCHES that file (`watchFocusState` in `lib/focus-state.ts`): on a change it
+WATCHES that file (`watchFocusState` in `@tinoy/pi-focus-state`): on a change it
 re-syncs its own footer from the file and ALERTS itself with the toggle notice,
 which WAKES an idle session — the flip is known the moment it happens, not at
 the next user prompt. The watch survives a replace of the state file (the
@@ -487,10 +490,12 @@ each session still re-syncs itself (`hookLog` source `focus-gate`, kinds
 `broadcast-failed`/`broadcast-skipped`/`notice-failed`/`state-change`/
 `ledgers-cleared`). The `context` handler re-syncs its own footer per turn as
 well, so a session whose watch cannot start still tracks the file instead of
-showing a stale indicator. The toggle never STEERS: delivery is `sendMessage`
-with `triggerTurn: true` and `deliverAs: "followUp"`, so an idle session STARTS A
-TURN on the notice while a streaming session takes it on the agent's follow-up
-queue — never on the STEERING queue, the one the user's own typing occupies. Both
+showing a stale indicator. The toggle STEERS: delivery is `sendMessage`
+with `triggerTurn: true` and `deliverAs: "steer"`, so an idle session STARTS A
+TURN on the notice while a streaming session takes it at its next turn boundary —
+the mode is known before the agent picks its next action. It does share the queue
+the user's own typing occupies; that interleaving is deliberate (chosen
+2026-10-03: a notice arriving mid-run beats a stale notice arriving after it). Both
 directions alert — ON is no longer silent — and both roads (the state watch and
 the channel) announce through one `<mode>|<since>` key in `announceMode`, so one
 toggle is one notice per session however it arrived. Accepted cost of the alert:
@@ -511,8 +516,10 @@ reports that session's count, and the footer's queued counter reads the same fil
 — a peer's blocked attempts are never visible here. A ledger row carries no
 session id: its file name names the session, and the paired hook-log row carries
 the `proc` that attributes it to a child. The `/focus` repertoire is
-`[on|off|status]`, no args toggles, `quiet`/`locked` accepted as legacy aliases
-for `on`. The release summary of `/focus off` reports THIS session's own attempts
+`[on|off|status]` plus a greedy tail, no args toggles, `quiet`/`locked` accepted
+as legacy aliases for `on`; everything after the mode token is forwarded to the
+model as a user request (`sendUserMessage`, steer), the way a skill's arguments
+are, so `/focus on watch the dock rebuild` gates the desktop and asks in one line. The release summary of `/focus off` reports THIS session's own attempts
 and prints before anything is cleared; the clear itself is all-at-once —
 `clearFocusLedgers` enumerates the runtime dir and removes every ledger it finds,
 so no session is left rendering a stale count and a session that already exited
@@ -594,12 +601,12 @@ message at the tariff in force **at that message's own timestamp**, so a session
 crossing window boundaries accumulates correctly instead of re-pricing history,
 and shows the running total in the footer as `$x.xxxx ¥x.xxxx peak|valley`.
 Tariffs come from `extensions/tariff.json`, as data: one row per price window and
-one column per currency, read by `lib/tariff.ts`, with the real rates in no source
+one column per currency, read by `@tinoy/pi-tariff`, with the real rates in no source
 file at all. Peak doubles every figure in both currencies, and peak is Beijing
 time Mon–Fri 09:00–12:00 and 14:00–18:00; weekends and everything else are valley.
 It prices on the message's own model when that model declares one, so a foreign
 model's message in a batch is never priced as Flash.
-*Spec:* reads the tariff table from `lib/tariff.ts` (which owns the file read, the
+*Spec:* reads the tariff table from `@tinoy/pi-tariff` (which owns the file read, the
 `PI_TARIFF_CONFIG` override and the refusal: an unconfigured or unreadable table
 prints no figure rather than a wrong one); `models.json` carries a
 **zeroed** `cost` row for Flash so pi's own static `$` figure does not compete
@@ -624,7 +631,7 @@ focus mode, because the user still wants the ask-for-eyes ping; only the routine
 per-response ping is suppressed.
 *Spec:* self-disables in a child session and in a session with no UI — the guard
 is `PI_SUBAGENT === "1" || PI_SUBAGENT_CHILD === "1" || !ctx.hasUI` — reads
-`lib/focus-state.ts`; debug log `/tmp/pi-notify-debug.log`.
+`@tinoy/pi-focus-state`; debug log `/tmp/pi-notify-debug.log`.
 *Load scope:* parent only, and not by accident. The file appears in no child list,
 so no child loads it at all, and the `!ctx.hasUI` clause covers the second route
 anyway: a child session binds extensions with no UI context, so `hasUI` is false
@@ -674,7 +681,7 @@ paths. It observes results rather than wrapping or patching the `read` tool.
 
 **`status-metrics.ts`** — footer counters in pi's own idiom (symbol + value, no
 labels), read from the shared hook log, tailed incrementally and filtered to the
-process that wrote each row (`proc`, the identity `lib/hook-log.ts` stamps)
+process that wrote each row (`proc`, the identity `@tinoy/pi-ext-lib`'s `hook-log.ts` stamps)
 because subagents and other pi windows share the file and an unfiltered count
 would be meaningless. A `sid` match is never a fallback: `PI_SESSION_ID` is an
 INHERITED env var, so a pi launched from inside a pi session carries its parent's
@@ -687,7 +694,7 @@ render only when non-zero; cosmetic by contract, with every path wrapped. Glyphs
 need a Nerd Font.
 *Spec:* reads `~/.local/share/pi-hooks/log.jsonl`, matching each row's `proc`
 against this process's own pid, and this session's own focus ledger through
-`focusLedgerPathFor` (`lib/focus-state.ts`);
+`focusLedgerPathFor` (`@tinoy/pi-focus-state`);
 it re-renders on the `focus:state-changed` event, so the queued counter follows a
 release clear made in any session, and it counts a blocked call only for a row
 whose `kind` is `block` (the same source also logs diagnostics that block
@@ -923,7 +930,7 @@ NAME when the path is outside the worker's claim; what the claim does and does
 not separate is §7.8.
 *Detail:* `io-guard/AGENTS.md` is the long-form spec for this subsystem.
 
-**`sudo-approve.ts`** — user-approved root command execution.
+**`@tinoy/pi-sudo-approve/index.ts`** — user-approved root command execution.
 The agent passes one or more commands with per-command and/or collective
 justifications. Primary path: `ags/promptd` shows one centred window with the
 commands, justifications and a masked password field; the password is validated
@@ -972,36 +979,57 @@ but the board does not move.**
 
 ## 5. Entries that are not extensions
 
-**`lib/`** — five shared modules, none of them an extension:
-`hook-log.ts` (the shared diagnostics envelope — `hookLog(source, kind, detail)`
-appends `{ts, source, kind, detail}` to `~/.local/share/pi-hooks/log.jsonl`;
-observability only, nothing reads it back to make a decision, and a logging
-failure never breaks the emitting call; reads `PI_SESSION_ID`),
-`focus-state.ts` (owns `$XDG_RUNTIME_DIR/pi-focus.json` and every ledger path
-convention — `focusLedgerPathFor` names one session's own ledger,
-`focusLedgerFiles` lists the ledgers in the runtime dir, `clearFocusLedgers` is
-the all-at-once release clear, and `watchFocusState` is the coalescing state-file
-watch; fail-open, so an unreadable file reads as `off`), `tariff.ts` (the house
-price table, UNREAD now that its consumers are the `@tinoy/pi-tariff` dependency,
-whose table lives at `~/.pi/agent/tariff.json` — see §6) and
-`tool-header.ts` (the shared `renderCall` header builder — pi does not expose
-`@earendil-works/pi-tui` to extensions, so a header must be a duck-typed
-component with `render(width)` and `invalidate()`).
-They are not discovered: discovery matches `*.ts` at the top level and
-`*/index.ts` in a subdirectory, and `lib/` has neither. They are the local
-copies of five modules whose live implementation is the package's: every
-consumer is a package, each package resolves its own copy, so what loads at
-runtime is the copy under `~/.pi/agent/npm/node_modules/@tinoy/`, never these
-files, and nothing under this directory imports them. The last local importer,
-`sudo-approve.ts`, is now `@tinoy/pi-sudo-approve` and imports the package like
-the rest. One caller does reach back in: `~/.pi/agent/patches/pi-subagents/verify-pause-aware-control.mjs`
-imports `lib/pause-state.ts` to build the pause state the patched
-`subagent-control.js` reads.
-`hook-log.ts` and `tool-header.ts` are published too in `@tinoy/pi-ext-lib`
-(`src/hook-log.ts`, `src/tool-header.ts`), beside the system-prompt seam
-(`src/system-prompt.ts`), which has no local counterpart: canon composes its tail
-through it and `child-prompt-freeze.ts` imports it directly. The seam has one
-implementation, and it is the package's.
+**`lib/` holds ONE module: `pause-state.ts`.** Five shared modules used to sit
+here — `hook-log.ts`, `focus-state.ts`, `pause-state.ts`, `tariff.ts` and
+`tool-header.ts`. Four are DELETED (all except `pause-state.ts`) because each one
+was a copy of a module an installed package owns and nothing loaded it: discovery
+matches `*.ts` at the top level and `*/index.ts` in a subdirectory and `lib/` has
+neither, `settings.json` names no path below it, and no extension, package,
+launcher or unit imported one.
+**`pause-state.ts` STAYS because it is live.** The pause-aware control patch
+applied to the installed `pi-subagents` loads its library BY PATH —
+`src/runs/shared/subagent-control.js` resolves
+`<agent dir>/extensions/lib/pause-state.ts` at runtime — so this file is the
+module that decides whether a machine pause suppresses a control notification. It
+is not a duplicate of `@tinoy/pi-pause`'s copy in effect: deleting it makes the
+gate's import fail, and the gate then fails OPEN, so a pause is ignored and every
+quiet run notifies as hung. That is measured, not inferred: with the file absent
+`patches/pi-subagents/verify-pause-aware-control.mjs` reported
+FAIL "the gate reports the pause as holding" and FAIL "no quiet-run signal
+notifies while the pause is active"; with the file restored it passes 16/16. The
+file is byte-identical to the home dotfiles repo's tracked copy (its authority),
+and `verify-pause-aware-control.mjs` imports the same path.
+The three deleted copies that had also drifted would have misled an editor:
+`hook-log.ts` was byte-identical to `@tinoy/pi-ext-lib`, while `tool-header.ts`
+(the SGR-literal fix and spelling), `focus-state.ts` (the state-contract
+paragraph) and `tariff.ts` (the `loadTariff()` rewrite) were older revisions.
+The live implementations, carrying the contracts those copies documented, are:
+`@tinoy/pi-ext-lib/src/hook-log.ts` (the shared diagnostics envelope — appends
+`{ts, proc, sid, source, kind, detail}` to `~/.local/share/pi-hooks/log.jsonl`,
+observability only, never breaks the emitting call) and
+`@tinoy/pi-ext-lib/src/tool-header.ts` (the duck-typed `renderCall` header
+builder, because pi does not expose `@earendil-works/pi-tui` to extensions);
+`@tinoy/pi-focus-state/focus-state.ts` (owns `$XDG_RUNTIME_DIR/pi-focus.json`
+and every ledger path convention — `focusLedgerPathFor`, `focusLedgerFiles`,
+`clearFocusLedgers`, `watchFocusState` — fail-open, so an unreadable file reads
+as `off`); and `@tinoy/pi-tariff/tariff.ts` (the house price table read from
+`~/.pi/agent/tariff.json`, or the path `PI_TARIFF_CONFIG` names, refusing rather
+than pricing from a default). `@tinoy/pi-pause/pause-state.ts` owns the same
+state file for the session-facing `/pause` command (record
+`{paused, until, since, rev, by}`, rewritten through a temp file plus rename,
+`until: null` meaning indefinite, `rev` separating a rewrite from a deadline
+expiring, `PI_PAUSE_STATE` overriding the path per call, fail-open); the local
+file and that one differ only in import formatting today, and the pitfall above is
+why the local file must not be "cleaned up" without first repointing the patch.
+`@tinoy/pi-ext-lib` also carries the system-prompt seam
+(`src/system-prompt.ts`), which never had a local counterpart: canon composes its
+tail through it and `child-prompt-freeze.ts` imports it directly, and the seam has
+one implementation, the package's.
+Two consequences. The four deleted files are tracked in the home dotfiles repo, so
+that work tree shows four deletions to commit; `pause-state.ts` remains tracked and
+unmodified. And no other path under `extensions/` holds shared code: a new shared
+module is a package (§6), never a file here, so nothing can silently shadow the
+copy a session loads.
 
 **`subagent/config.json`** — pi-subagents' own extension config, not a local
 extension. The package resolves it as
@@ -1028,32 +1056,30 @@ the parent. A child gets it only through an explicit path in a child list (§1) 
 `--no-extensions` removes `packages[]` too.
 
 Installed set (registry copies; each package carries its own version):
-`pi-cache-prefix-log`, `pi-canon`, `pi-child-prompt-freeze`,
+`pi-build`, `pi-cache-prefix-log`, `pi-canon`, `pi-child-prompt-freeze`,
 `pi-child-request-dump`, `pi-cli-keys`, `pi-command-guard`, `pi-deepseek-cost`,
-`pi-desktop-notify`, `pi-drift-anchor`, `pi-focus-gate`, `pi-image-read`, `pi-ipc`,
-`pi-nf`, `pi-no-subagent-fork`, `pi-orphan-repair`,
-`pi-pause`, `pi-probe`, `pi-read-staleness`, `pi-status-metrics`,
-`pi-todo-parent`, plus the three `file:` bridges below. Library packages that ship
-no extension entry — `pi-ext-lib` (0.3.0), `pi-focus-state` (0.1.0),
+`pi-desktop-notify`, `pi-drift-anchor`, `pi-fleet`, `pi-focus-gate`,
+`pi-image-read`, `pi-io-guard`, `pi-ipc`, `pi-nf`, `pi-no-subagent-fork`,
+`pi-orphan-repair`, `pi-pause`, `pi-probe`, `pi-read-staleness`,
+`pi-status-metrics`, `pi-sudo-approve`, `pi-todo-parent`. Every one of them is a
+registry tarball under `node_modules/@tinoy/` and no `file:` link exists in the
+tree, so a change made in the `pi-extensions` checkout reaches a session only
+once it is published and installed. Library packages that ship
+no extension entry — `pi-ext-lib` (0.5.0), `pi-focus-state` (0.1.0),
 `pi-tariff` (0.1.0) — are plain dependencies of those packages, installed beside
 them and never named in settings.
 
-**The three package bridges.** `pi-fleet`, `pi-io-guard` and `pi-build` are
-`file:` links into the `pi-extensions` checkout — `node_modules/@tinoy/<name>` is
-a symlink into that checkout's `packages/<name>` — not registry copies.
-`@tinoy/pi-io-guard` was never published, so every registry route into the split
-(`pi install npm:@tinoy/pi-fleet`, `pi update --extensions`) fails on it, and the
-checkout is the only working mirror of the fixed code. The settings entries are
-still spelled `npm:@tinoy/<name>`: pi skips the install whenever the resolved
-path exists, so no network install is attempted, and the version fields (fleet
-0.2.3, io-guard 0.1.0, build 0.2.0) are the checkout's own. Editing the checkout
-therefore changes what the next session loads with no install step in between;
-a frozen copy would mean packing the directory and installing the tarball
-instead. Two consequences worth stating: a pi-driven install or update of these
-three packages must not be run while io-guard is unpublished, and a name in a
-child list is a path, so it must be the new package path
-(`@tinoy/pi-io-guard/index.ts`) — the pre-split subpath
-(`@tinoy/pi-fleet/io-guard/index.ts`) no longer resolves at all.
+**The three packages split out of `@tinoy/pi-fleet` — `pi-fleet`, `pi-io-guard`
+and `pi-build` — were `file:` links into the `pi-extensions` checkout, not
+registry copies.** That was forced: `@tinoy/pi-io-guard` was unpublished, so every
+registry route into the split (`pi install npm:@tinoy/pi-fleet`, `pi update
+--extensions`) failed on it. All three are published now and installed as
+registry copies (fleet 0.4.0, io-guard 0.2.0, build 0.4.0), which reverses the
+operational rule that section used to state: editing the checkout changes NOTHING
+in a session until the package is published and reinstalled, and what a defect
+must be read from is the installed tree. A name in a child list is still a path,
+so it must be the package path (`@tinoy/pi-io-guard/index.ts`); the pre-split
+subpath (`@tinoy/pi-fleet/io-guard/index.ts`) does not resolve at all.
 
 **`@tinoy/pi-ext-lib` must be 0.2.0 or newer.** `pi-build`, `pi-fleet` and
 `pi-todo-parent` import `optionalNeighbour` from it; ext-lib 0.1.0 lacks that
@@ -1072,8 +1098,9 @@ differently:
 - **Local files in this directory** — `/home/tinoy/.pi/agent/extensions/*.ts`
   and `/home/tinoy/.pi/agent/extensions/*/index.ts`. Loaded by the parent through
   ambient discovery, and by a child only when the path appears in a child list.
-  One extension is still in this category: `sudo-approve.ts`, whose package is
-  not published yet.
+  No extension is in this category any more: the last survivor, `sudo-approve.ts`,
+  is now `@tinoy/pi-sudo-approve` in `packages[]`, so a file dropped here would be
+  the only one — and it would reach the parent only.
 - **Package entries under `~/.pi/agent/npm/node_modules/`** — resolved from
   `settings.json`'s `packages[]` for the parent, and reachable by a child **only
   if the path is named in that agent's `subagentOnlyExtensions`**. Current
@@ -1291,8 +1318,9 @@ state); or leave the store to adults and keep every rule in briefs.
   `node --check`. An extension that value-imports
   `@earendil-works/pi-coding-agent` cannot be import-tested standalone; strip
   that import line into a `/tmp` copy to exercise its exported helpers.
-- Shared code lives in `lib/`; it is imported, never registered, and never
-  discovered.
+- Shared code lives in a package (§6); it is imported, never registered, and
+  never discovered. `extensions/lib/` keeps one file, and only because an
+  installed package loads it by path (§5).
 - A new extension that children must have needs an explicit entry in a child
   list — `subagents.defaultExtensions` for every child, or the agent's
   `subagentOnlyExtensions` for one agent. Dropping a file into this directory
