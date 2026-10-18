@@ -9,7 +9,7 @@ Load this skill whenever the trigger matches; the rules below are binding for th
 
 ## Shutdown preferred, suspend = fallback
 
-**END-OF-NIGHT SESSION: SHUTDOWN PREFERRED, SUSPEND = FALLBACK:** when the user asks to "shut the machine down" at session end, they mean a real poweroff — ask via `sudo_approve` (`shutdown`) even if it shows an approval window; if the approval doesn't happen / is denied, fall back to `systemctl suspend` (user-approved alternative, no root needed). Either way schedule DELAYED (`shutdown +3` / `setsid sh -c 'sleep N; systemctl suspend'`) after composing the final response; never block before the reply flushes.
+**END-OF-NIGHT SESSION: SHUTDOWN PREFERRED, SUSPEND = FALLBACK:** when the user asks to "shut the machine down" at session end, they mean a real poweroff — ask via `sudo_approve` (`shutdown`) even if it shows an approval window; if the approval doesn't happen / is denied, fall back to `systemctl suspend` (user-approved alternative, no root needed). Either way schedule DELAYED (`shutdown +3` / `setsid --fork sh -c 'sleep N; systemctl suspend'`) after composing the final response; never block before the reply flushes.
 
 ## Elevated-perms wall → report inline, never a file
 
@@ -21,4 +21,4 @@ CRITICAL NOTIFS DO NOT WAKE THE USER OVERNIGHT — during night sessions never a
 
 ## Terminal actions after the final response
 
-**TERMINAL ACTIONS AFTER THE FINAL RESPONSE:** never run a blocking suspend/poweroff then write the final response — the reply flushes at turn end, so it lands in the void. Compose everything first, then schedule DELAYED (`setsid sh -c 'sleep N; systemctl suspend'`). Nothing follows a blocking terminal action.
+**TERMINAL ACTIONS AFTER THE FINAL RESPONSE:** never run a blocking suspend/poweroff then write the final response — the reply flushes at turn end, so it lands in the void. Compose everything first, then schedule DELAYED (`setsid --fork sh -c 'sleep N; systemctl suspend'`). Nothing follows a blocking terminal action.
