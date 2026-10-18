@@ -14,8 +14,22 @@ case "${1:-toggle}" in
   on | off | toggle)
     exec hyprctl dispatch "hl.dsp.dpms({action = \"$1\"})"
     ;;
+  resume)
+    # Damage the outputs after a suspend/resume. A plain `on` cannot do it:
+    # Hyprland's setDPMS() returns early while m_dpmsStatus is already on, so the
+    # resume path produced no damage and an idle frame scheduler, leaving clients
+    # that held an unanswered wl_surface.frame request frozen on a stale picture
+    # until unrelated input arrived. A DPMS off/on pair lands real damage, and the
+    # delay is load-bearing: the backend restores the outputs BEFORE the compositor
+    # flips its session-active flag, and damage produced before that flip is dropped
+    # by CMonitor::scheduleFrame()'s session gate.
+    sleep 1.5
+    hyprctl dispatch "hl.dsp.dpms({action = \"off\"})"
+    sleep 0.4
+    exec hyprctl dispatch "hl.dsp.dpms({action = \"on\"})"
+    ;;
   *)
-    echo "usage: hypr-dpms [on|off|toggle]" >&2
+    echo "usage: hypr-dpms [on|off|toggle|resume]" >&2
     exit 2
     ;;
 esac
