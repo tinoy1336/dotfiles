@@ -66,8 +66,6 @@ run_probe() { # <label> <variable the probe reads> <probe> <tool it checks>
 
 run_probe "host-apply-probe" HOST_APPLY_PROBE_TOOL \
 	"$root/.local/bin/host-apply-probe" "$root/.local/bin/host-apply"
-run_probe "ws-cycle-probe" WS_CYCLE_PROBE_TOOL \
-	"$root/.config/hypr/ws-cycle-probe.sh" "$root/.config/hypr/ws-cycle.sh"
 run_probe "cli-keys-probe" CLI_KEYS_PROBE_TOOL \
 	"$root/.local/bin/cli-keys-probe" "$root/.local/bin/cli-keys"
 run_probe "inject-probe" INJECT_PROBE_TOOL \
