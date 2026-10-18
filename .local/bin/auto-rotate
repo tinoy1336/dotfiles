@@ -32,6 +32,10 @@ Rotation is applied through:
   hyprctl eval 'hl.monitor({ output = "eDP-1", transform = N })'   (display)
   hyprctl eval 'hl.config({ input = { touchdevice = { transform = N }, ... } })'
                                                                    (touch + stylus)
+
+It runs as auto-rotate.service and takes no arguments: a bare run applies a
+transform to the display and to touch input, so an argument it does not know is
+refused rather than ignored.
 """
 
 import fcntl
@@ -40,6 +44,7 @@ import os
 import re
 import struct
 import subprocess
+import sys
 import threading
 import time
 
@@ -392,6 +397,15 @@ def watch_state():
 
 
 def main():
+    for arg in sys.argv[1:]:
+        if arg in ("-h", "--help"):
+            print("usage: auto-rotate    (no options; runs the rotation watcher)")
+            return
+        print(
+            f"auto-rotate: unknown argument '{arg}' — this script takes no options",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
     print(
         f"[auto-rotate] accel device: {ACCEL_DEVICE or 'NOT FOUND'}",
         flush=True,

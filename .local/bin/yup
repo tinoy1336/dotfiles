@@ -1,5 +1,26 @@
 #!/usr/bin/env bash
+# Update the system with yay, then rebuild the hyprpm plugins when hyprland
+# itself changed (a plugin .so embeds the API hash of the headers it was built
+# against, so a hyprland version bump makes it post "Mismatched Hyprland
+# version!" at load).
+#
+# Usage: yup    (no options — a bare run updates the system)
+#
+# An argument this script does not know is refused rather than ignored: a bare
+# run is a full system upgrade, so nothing may start it by accident.
 set -e
+
+case "${1:-}" in
+  '') ;;
+  -h | --help)
+    echo 'usage: yup    (no options; updates with yay, then rebuilds hyprpm plugins)'
+    exit 0
+    ;;
+  *)
+    echo "yup: unknown argument '$1' — this script takes no options" >&2
+    exit 2
+    ;;
+esac
 
 # Rebuild hyprpm plugins whenever hyprland itself changed: plugin .so files
 # embed the Hyprland API hash of the headers they were built against, and a

@@ -1,5 +1,26 @@
 #!/usr/bin/env bash
+# Reload the Bluetooth stack: block the radio, stop bluetooth.service, unload and
+# reload the btusb module, start the service again, then unblock. Recovery path
+# for a controller that wedged across a resume; every step needs sudo, and a
+# connected device loses its link.
+#
+# Usage: reload-bluetooth    (no options — a bare run performs the whole reload)
+#
+# An argument this script does not know is refused rather than ignored: the whole
+# sequence is privileged and disruptive, so nothing may start it by accident.
 set -euo pipefail
+
+case "${1:-}" in
+  '') ;;
+  -h | --help)
+    echo 'usage: reload-bluetooth    (no options; runs the whole reload)'
+    exit 0
+    ;;
+  *)
+    echo "reload-bluetooth: unknown argument '$1' — this script takes no options" >&2
+    exit 2
+    ;;
+esac
 
 echo "[*] Blocking Bluetooth via rfkill..."
 sudo rfkill block bluetooth || true

@@ -23,6 +23,11 @@
 #   fix-asus-kbd --yes     run both steps without asking
 #   fix-asus-kbd --rebind  run step 1 only (driver re-init, no USB unplug)
 #   fix-asus-kbd --check   exit 0 if the keyboard is present and re-enumerated
+#   fix-asus-kbd --help    print the options and change nothing
+#
+# An argument this script does not know is refused rather than ignored: every
+# step unbinds a driver or power-cycles the port, so nothing may start one by
+# accident.
 
 set -euo pipefail
 shopt -s nullglob
@@ -37,6 +42,18 @@ for _arg in "$@"; do
         --yes)    YES=1 ;;
         --rebind) REBIND=1 ;;
         --check)  CHECK=1 ;;
+        -h | --help)
+            echo "usage: fix-asus-kbd [--yes|--rebind|--check]"
+            echo "  (no option)  run interactively, confirming after each step"
+            echo "  --yes        run both steps without asking"
+            echo "  --rebind     step 1 only: driver re-init, no USB unplug"
+            echo "  --check      exit 0 if the keyboard is present and re-enumerated"
+            exit 0
+            ;;
+        *)
+            echo "fix-asus-kbd: unknown argument '$_arg'" >&2
+            exit 2
+            ;;
     esac
 done
 
