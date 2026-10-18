@@ -1,0 +1,10 @@
+# One memory sample for the desktop shell (see shell-mem-probe.timer).
+# The probe appends a single TSV line; it is a oneshot so every sample is an
+# independent process and the series survives a restarted or dead shell.
+
+[Unit]
+Description=Sample the TINSHELL shell's memory (one line)
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/shell-mem-probe

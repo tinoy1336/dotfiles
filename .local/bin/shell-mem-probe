@@ -1,0 +1,142 @@
+#!/usr/bin/env bash
+# shell-mem-probe — append one memory sample for the desktop shell and the machine.
+#
+# Driven by shell-mem-probe.timer (every 30s). One TSV line per run so a slow
+# climb can be read back after the fact: the shell unit's control-group
+# accounting (current/peak, anon/anon_thp/file, swap and zswap), the gjs
+# process's RSS and CPU ticks, machine-wide memory availability and swap,
+# /proc/pressure/memory, the reclaim and refault counters from /proc/vmstat,
+# and the round-trip time of a side-effect-free shell request as the
+# responsiveness signal. Cumulative counters are logged RAW — the reader
+# derives deltas, so no resolution is lost at sampling time.
+#
+# Env:
+#   SHELL_MEM_PROBE_LOG       log path (default $XDG_STATE_HOME/tinshell/shell-mem.tsv)
+#   SHELL_MEM_PROBE_UNIT      unit to sample (default tinshell-shell.service)
+#   SHELL_MEM_PROBE_INSTANCE  ags instance for the latency probe (default: shell)
+#   SHELL_MEM_PROBE_PROBE=0   skip the request round trip
+#
+# Never fails the run: a field whose source is unavailable is left empty so a
+# gap in the series stays visible as a gap instead of a zero.
+
+set -u
+
+UNIT=${SHELL_MEM_PROBE_UNIT:-tinshell-shell.service}
+INSTANCE=${SHELL_MEM_PROBE_INSTANCE:-shell}
+LOG=${SHELL_MEM_PROBE_LOG:-${XDG_STATE_HOME:-$HOME/.local/state}/tinshell/shell-mem.tsv}
+MAX_BYTES=$((8 * 1024 * 1024))
+T=$'\t'
+
+mkdir -p "${LOG%/*}"
+
+# Rotate before the file can grow without bound: 30s sampling is ~1 MB/day.
+if [ -f "$LOG" ]; then
+  size=$(wc -c <"$LOG" 2>/dev/null || echo 0)
+  if [ "${size:-0}" -gt "$MAX_BYTES" ]; then
+    mv -f "$LOG" "$LOG.1"
+  fi
+else
+  printf '%s\n' \
+    "ts_iso${T}ts_epoch${T}state${T}mem_mib${T}peak_mib${T}anon_mib${T}anon_thp_mib${T}file_mib${T}swap_mib${T}zswap_mib${T}zswapped_mib${T}pids${T}gjs_rss_mib${T}gjs_cpu_ticks${T}gjs_heap_mib${T}gjs_cminflt${T}psi_some_avg300${T}psi_some_total_us${T}psi_full_total_us${T}memavail_mib${T}swapused_mib${T}pswpout${T}pswpin${T}zswpout${T}zswpin${T}zswpwb${T}pgscan_direct${T}pgsteal_direct${T}refault_anon${T}pgmajfault${T}probe_ms${T}probe_rc" \
+    >>"$LOG"
+fi
+
+# The unit's own accounting: one systemctl call for state + cgroup + main pid.
+state='' cgpath=''
+while IFS='=' read -r key value; do
+  case $key in
+  ActiveState) state=$value ;;
+  ControlGroup) cgpath=$value ;;
+  esac
+done < <(systemctl --user show "$UNIT" -p ActiveState -p ControlGroup 2>/dev/null)
+
+CG="/sys/fs/cgroup$cgpath" # cgroup v2 mount is always /sys/fs/cgroup
+mem='' peak='' anon='' anon_thp='' file='' swap='' zswap='' zswapped='' pids='' gjs_rss='' gjs_ticks='' gjs_heap='' gjs_cminflt=''
+
+mib() { [ -n "${1:-}" ] && printf '%d' "$(( $1 / 1048576 ))" || printf ''; }
+
+if [ -n "$cgpath" ] && [ -r "$CG/memory.current" ]; then
+  read -r v <"$CG/memory.current" 2>/dev/null
+  mem=$(mib "${v:-}")
+  read -r v <"$CG/memory.peak" 2>/dev/null
+  peak=$(mib "${v:-}")
+  read -r v <"$CG/memory.swap.current" 2>/dev/null
+  swap=$(mib "${v:-}")
+  read -r v <"$CG/memory.zswap.current" 2>/dev/null
+  zswap=$(mib "${v:-}")
+  read -r v <"$CG/pids.current" 2>/dev/null
+  pids=${v:-}
+  read -r anon anon_thp file zswapped < <(awk '
+    /^(anon|anon_thp|file|zswapped) /{v[$1] = $2}
+    END{print v["anon"] + 0, v["anon_thp"] + 0, v["file"] + 0, v["zswapped"] + 0}' \
+    "$CG/memory.stat" 2>/dev/null)
+  anon=$(mib "${anon:-}")
+  anon_thp=$(mib "${anon_thp:-}")
+  file=$(mib "${file:-}")
+  zswapped=$(mib "${zswapped:-}")
+
+  # The gjs process is the memory owner in a unit whose ExecStart is a wrapper.
+  for p in $(<"$CG/cgroup.procs"); do
+    read -r comm <"/proc/$p/comm" 2>/dev/null || continue
+    if [ "$comm" = "gjs" ]; then
+      gjs_pid=$p
+      break
+    fi
+  done
+  if [ -n "${gjs_pid:-}" ]; then
+    while read -r k v _; do
+      if [ "$k" = "VmRSS:" ]; then
+        gjs_rss=${v:-}
+        break
+      fi
+    done <"/proc/$gjs_pid/status"
+    gjs_rss=$(mib "$(( ${gjs_rss:-0} * 1024 ))")
+    stat_line=$(<"/proc/$gjs_pid/stat")
+    rest=${stat_line#*) } # the comm field may contain spaces and parens
+    # shellcheck disable=SC2086
+    set -- $rest
+    gjs_ticks=$(( ${12:-0} + ${13:-0} ))
+    # Children's minor faults: a monotonic proxy for how many short-lived
+    # children this process has reaped, which is what a per-spawn leak scales with.
+    gjs_cminflt=${9:-0}
+    # The glibc main arena (the brk heap) is this process's dominant allocation
+    # area, so its VMA size is the cheap growth signal (its RSS needs full smaps).
+    while read -r range _ _ _ _ mname; do
+      if [ "$mname" = "[heap]" ]; then
+        gjs_heap=$(( (16#${range#*-} - 16#${range%-*}) / 1048576 ))
+        break
+      fi
+    done <"/proc/$gjs_pid/maps"
+  fi
+fi
+
+# Machine-wide: pressure, availability, swap and the reclaim/refault counters.
+read -r psi_some psi_total < <(awk '
+  /^some/{gsub("avg300=", "", $4); gsub("total=", "", $5); print $4, $5}' /proc/pressure/memory 2>/dev/null)
+read -r psi_full_total < <(awk '
+  /^full/{gsub("total=", "", $5); print $5}' /proc/pressure/memory 2>/dev/null)
+read -r memavail swapused < <(awk '
+  /^MemAvailable:/{a = $2 / 1024}
+  /^SwapTotal:/{t = $2}
+  /^SwapFree:/{f = $2}
+  END{printf "%d %d", a, (t - f) / 1024}' /proc/meminfo 2>/dev/null)
+read -r pswpout pswpin zswpout zswpin zswpwb pgscan_direct pgsteal_direct refault_anon pgmajfault < <(awk '
+  /^(pswpout|pswpin|zswpout|zswpin|zswpwb|pgscan_direct|pgsteal_direct|workingset_refault_anon|pgmajfault) /{v[$1] = $2}
+  END{print v["pswpout"] + 0, v["pswpin"] + 0, v["zswpout"] + 0, v["zswpin"] + 0, v["zswpwb"] + 0,
+           v["pgscan_direct"] + 0, v["pgsteal_direct"] + 0, v["workingset_refault_anon"] + 0, v["pgmajfault"] + 0}' \
+  /proc/vmstat 2>/dev/null)
+
+# Responsiveness: a side-effect-free request round trip. `shell debug build`
+# answers from the running instance's own state and allocates nothing.
+probe_ms='' probe_rc=''
+if [ "${SHELL_MEM_PROBE_PROBE:-1}" != 0 ] && command -v ags >/dev/null 2>&1; then
+  t0=${EPOCHREALTIME/./}
+  timeout 5 ags -i "$INSTANCE" request "debug build" >/dev/null 2>&1
+  probe_rc=$?
+  t1=${EPOCHREALTIME/./}
+  probe_ms=$(( (t1 - t0) / 1000 ))
+fi
+
+printf '%s\n' \
+  "$(date +%FT%T%z)${T}${EPOCHSECONDS}${T}${state}${T}${mem}${T}${peak}${T}${anon}${T}${anon_thp}${T}${file}${T}${swap}${T}${zswap}${T}${zswapped}${T}${pids}${T}${gjs_rss}${T}${gjs_ticks}${T}${gjs_heap}${T}${gjs_cminflt}${T}${psi_some:-}${T}${psi_total:-}${T}${psi_full_total:-}${T}${memavail:-}${T}${swapused:-}${T}${pswpout:-}${T}${pswpin:-}${T}${zswpout:-}${T}${zswpin:-}${T}${zswpwb:-}${T}${pgscan_direct:-}${T}${pgsteal_direct:-}${T}${refault_anon:-}${T}${pgmajfault:-}${T}${probe_ms}${T}${probe_rc}" \
+  >>"$LOG"

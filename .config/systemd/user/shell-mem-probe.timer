@@ -1,0 +1,15 @@
+# Samples the desktop shell's memory every 30s into a TSV series.
+# 30s resolution: the growth under investigation is ~190 MiB/h, and the
+# counters that matter (reclaim, refault) are cumulative so a coarser sample
+# loses nothing but start time.
+
+[Unit]
+Description=Sample the TINSHELL shell's memory every 30s
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=30s
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target
