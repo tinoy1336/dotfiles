@@ -252,6 +252,15 @@ while work continues describes a state that has already moved on.
   (canon: long docs → file + path + 2-3 key beats inline).
 - **Cold-start complete**: the doc must state goal, target/cwd/ref, what's done vs
   not, the next step, and stop rules. Do not rely on the previous session's history.
+- **A handoff NEVER delegates its substance to another handoff.** "Read the previous
+  handoff first" is not self-sufficiency: the successor was not in that session, cannot tell
+  which parts still hold, and re-derives the mechanism at full price. Carry the mechanism,
+  the citations, the measured evidence, the ruled-out readings and the next step INTO this
+  doc. Name a predecessor only as history ("an earlier handoff on this topic covered X; this one
+  supersedes it") and only when it adds nothing the successor needs. EX RIGHT: the new doc
+  restates the code paths, the version pins and the four measured samples, and stands alone.
+  EX WRONG: "read `~/handoffs/<earlier>.md` FIRST — it holds the full mechanism" followed by
+  only what changed since.
 - **Corrections matter**: if the prior handoff/plan was wrong, state the correction
   explicitly — a fresh session can't see the conversation.
 - **Be terse but complete** — facts, not prose. Machine-level facts go in canon;
