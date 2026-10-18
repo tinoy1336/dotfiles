@@ -17,7 +17,7 @@ Never anywhere else. Same dir every time.
 ## Workflow
 
 1. **Write** the handoff md to the location above (template below).
-2. **Open HTML preview** — render it with `preview_export` (source: file, format: html, open: true) so the user reviews the rendered doc, not raw markdown. Always, no exceptions. The tool is not part of pi itself: it ships in the `pi-markdown-preview` extension (`npm:pi-markdown-preview`, installed at 0.16.0).
+2. **Open HTML preview** — render it with `preview_export` (source: file, format: html, open: true) so the user reviews the rendered doc, not raw markdown. Always, no exceptions. The tool is not part of pi itself: it ships in the `pi-markdown-preview` extension (`npm:pi-markdown-preview`, installed at 0.22.1).
 3. **Publish the crew** (foreman sessions that hold one) — see "Handing off a crew" below. Do this BEFORE spawning the successor, so the successor's very first `fleet adopt` has a sheet to read.
 4. **Spawn a fresh pi TUI session** (ONLY when the user explicitly asks) pointed at the handoff with the requested model, to save the user opening it manually:
    ```
