@@ -14,7 +14,7 @@
     "power"
   ],
   "layout": {
-    "position": "bottom-left",
+    "position": "top-left",
     "iconSize": 34,
     "pillHeight": 140,
     "spacing": 6,

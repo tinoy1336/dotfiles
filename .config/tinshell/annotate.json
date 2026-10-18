@@ -13,7 +13,7 @@
     "defaultHeight": 450
   },
   "tools": {
-    "lineWidth": 24,
+    "lineWidth": 4,
     "fontSize": 24,
     "colours": [
       "#8ab5f7",
