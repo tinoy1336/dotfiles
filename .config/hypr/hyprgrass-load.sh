@@ -8,6 +8,22 @@
 #
 # PLUGIN is hyprpm's own build output (sudo hyprpm add); loading it directly
 # avoids a hyprpm dependency at boot.
+#
+# Usage: hyprgrass-load.sh    (no options — a bare run loads the plugin)
+#
+# An argument this script does not know is refused rather than ignored: a bare
+# run dispatches to the compositor, so a mistyped flag must not start it.
+case "${1:-}" in
+  '') ;;
+  -h | --help)
+    echo 'usage: hyprgrass-load.sh    (no options; loads the plugin and applies its settings)'
+    exit 0
+    ;;
+  *)
+    echo "hyprgrass-load.sh: unknown argument '$1' — this script takes no options" >&2
+    exit 2
+    ;;
+esac
 
 PLUGIN=/var/cache/hyprpm/tinoy/hyprgrass/hyprgrass.so
 

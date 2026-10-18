@@ -29,6 +29,20 @@
 
 set -u
 
+# The launcher passes all nine positionally and nothing else. A help flag and a
+# wrong count are answered here, before any file is written or notification
+# fired: an argument this supervisor does not know must not start a watch.
+case "${1:-}" in
+  -h | --help)
+    echo "usage: foreman-headless-watch <name> <combined> <model> <cwd> <log> <pidfile> <report> <sessiondir> <ledger>"
+    exit 0
+    ;;
+esac
+if [ "$#" -ne 9 ]; then
+  echo "foreman-headless-watch: expected 9 positional arguments, got $#" >&2
+  exit 2
+fi
+
 name="$1"
 combined="$2"
 model="$3"

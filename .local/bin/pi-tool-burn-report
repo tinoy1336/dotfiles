@@ -20,7 +20,17 @@
 const { execSync } = require("node:child_process");
 const fs = require("node:fs");
 
-const DAYS = parseInt(process.argv[2] || "30", 10);
+const args = process.argv.slice(2);
+if (args.includes("-h") || args.includes("--help")) {
+  console.log("usage: pi-tool-burn-report [days]    (default 30)");
+  process.exit(0);
+}
+if (args.length > 1 || (args.length === 1 && !/^\d+$/.test(args[0]))) {
+  console.error(`pi-tool-burn-report: expected at most one day count, got: ${args.join(" ")}`);
+  console.error("usage: pi-tool-burn-report [days]    (default 30)");
+  process.exit(2);
+}
+const DAYS = parseInt(args[0] || "30", 10);
 const BASE = process.env.HOME + "/.pi/agent/sessions";
 const files = execSync(
   `find ${BASE} -name '*.jsonl' -mtime -${DAYS} -not -path '*subagent-artifacts*'`

@@ -5,4 +5,13 @@
 # injects canon in every pi process.
 # Selected via PI_SUBAGENT_PI_BINARY (see pi-subagents docs/configuration.md).
 export PI_SUBAGENT=1
-exec /usr/bin/pi "$@"
+# pi installs its launcher under ~/.local/bin, not /usr/bin: resolve that path
+# first, then PATH, and name the failure when neither exists rather than exec a
+# path that no longer exists.
+PI_BIN="$HOME/.local/bin/pi"
+[ -x "$PI_BIN" ] || PI_BIN="$(command -v pi || true)"
+if [ -z "$PI_BIN" ]; then
+    echo "pi-subagent: no pi launcher at $HOME/.local/bin/pi or on PATH" >&2
+    exit 127
+fi
+exec "$PI_BIN" "$@"
