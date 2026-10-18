@@ -10,9 +10,11 @@
 # config line.
 set -eu
 
-case "${1:-toggle}" in
+action="${1:-toggle}"
+
+case "$action" in
   on | off | toggle)
-    exec hyprctl dispatch "hl.dsp.dpms({action = \"$1\"})"
+    exec hyprctl dispatch "hl.dsp.dpms({action = \"$action\"})"
     ;;
   resume)
     # Damage the outputs after a suspend/resume. A plain `on` cannot do it:
