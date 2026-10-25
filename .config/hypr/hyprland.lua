@@ -113,10 +113,7 @@ hl.bind(mod .. " + F", hl.dsp.exec_cmd(mainBrowser))
 hl.bind(mod .. " + G", hl.dsp.exec_cmd(altBrowser))
 hl.bind(mod .. " + Y", hl.dsp.exec_cmd(musicApp))
 
--- Re-assert border + rounding on floats so they survive the w[tv1] smart-gaps
--- rule (no_border + decorate=false); kept inline because no surface owns it, and
--- placed before the generated rules just below, whose rounding = 14 wins (last
--- match wins).
+-- Float decoration: border, frame and corner radius for every floating window.
 hl.window_rule({
     name     = "float-decorations",
     match    = { float = true },
@@ -126,23 +123,24 @@ hl.window_rule({
 })
 -- App-owned compositor rules are rendered into a directory beside this config, so
 -- a rule belonging to an app travels with that app. Mounted directly after the
--- generic float rule: a window rule's keys apply over every earlier match and the
--- last match wins per key, so the fragments' `rounding = 14` has to out-rank
--- float-decorations' `rounding = 12`. The mount is guarded because a wildcard
--- require matching nothing raises, which would abort the rest of this file.
+-- float rule above. The mount is guarded because a wildcard require matching
+-- nothing raises, which would abort the rest of this file.
 local configDir = os.getenv("HOME") .. "/.config/hypr"
 pcall(require, configDir .. "/rules/*.lua")
 
 -- The Shift-launched terminal only (its own app_id); 1200x760 at map, centred.
+-- Decorations are NOT pinned here: this rule matches by class ALONE, so it also
+-- matches while the window is tiled, and a window rule out-ranks the smart-gaps
+-- workspace rule (PRIORITY_WINDOW_RULE over PRIORITY_WORKSPACE_RULE) — pinning
+-- rounding/border here leaves a lone tiled window with corners and an outline.
+-- The decoration belongs to `float-decorations` above, which matches float=true
+-- and therefore covers this window exactly while it IS floating.
 hl.window_rule({
     name     = "kitty-float",
     match    = { class = "^(kitty-float)$" },
     float    = true,
-    rounding = 12,
     size     = { 1200, 760 },
     center   = true,
-    decorate = true,
-    border_size = 1,
 })
 -- VS Code (class "code") frost is app-side (Vibrancy Continued makes the window
 -- transparent + frameless); the global blur frosts through its own alpha. An
