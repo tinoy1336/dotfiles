@@ -24,7 +24,7 @@
  }
  export function controlNotificationKey(event, childIntercomTarget) {
      const childKey = childIntercomTarget ?? (event.index !== undefined ? `${event.runId}:${event.index}` : event.runId);
-@@ -231,4 +240,169 @@
+@@ -231,3 +240,168 @@
          formatControlNoticeMessage(event, childIntercomTarget),
      ].join("\n");
  }
@@ -193,8 +193,6 @@
 +    const since = record.pauseSince ? ` (pause set ${record.pauseSince})` : "";
 +    return `${agent}${run} was parked by a machine pause, not hung: ${record.count} ${signalWord} suppressed while the pause held for ${held}${since}. The run resumed on release.`;
 +}
- //# sourceMappingURL=subagent-control.js.map
-\ No newline at end of file
 --- a/src/runs/foreground/execution.js
 +++ b/src/runs/foreground/execution.js
 @@ -9,8 +9,8 @@
@@ -203,7 +201,7 @@
  import { DEFAULT_MAX_OUTPUT, INTERCOM_DETACH_REQUEST_EVENT, INTERCOM_DETACH_RESPONSE_EVENT, truncateOutput, } from "../../shared/types.js";
 -import { DEFAULT_CONTROL_CONFIG, buildControlEvent, claimControlNotification, deriveActivityState, shouldEmitOpenToolAttention, shouldNotifyControlEvent, } from "../shared/subagent-control.js";
 +import { DEFAULT_CONTROL_CONFIG, buildControlEvent, claimControlNotification, deriveActivityState, shouldEmitOpenToolAttention, shouldNotifyControlEvent, PAUSE_SUPPRESSION_REASON, formatPauseSuppressionMessage, takePauseSuppressedControlEvents, } from "../shared/subagent-control.js";
- import { getFinalOutput, findLatestSessionFile, detectSubagentError, hasEmptyTerminalAssistantResponse, formatEmptyTerminalAssistantResponseError, extractToolArgsPreview, extractTextFromContent, MAX_STREAMED_RECENT_TOOLS, boundStreamedRecentTools, boundStreamedRecentOutput, boundStreamedToolCalls, } from "../../shared/utils.js";
+ import { getFinalOutput, findLatestSessionFile, detectSubagentError, hasEmptyTerminalAssistantResponse, formatEmptyTerminalAssistantResponseError, extractToolArgsPreview, assistantMessageError, extractTextFromContent, MAX_STREAMED_RECENT_TOOLS, boundStreamedRecentTools, boundStreamedRecentOutput, boundStreamedToolCalls, } from "../../shared/utils.js";
  import { resolveSkillsWithFallback } from "../../agents/skills.js";
  import { createPartialOutputTracker, formatPartialOutput } from "../shared/partial-output.js";
  import { effectiveToolTimeoutMs, formatToolTimeoutMessage, resolveToolTimeoutMs, toolTimeoutCallKey, toolTimeoutFromEnv } from "../shared/tool-timeout.js";
@@ -240,14 +238,15 @@
              const idleState = deriveActivityState({
 --- a/src/runs/background/subagent-runner.js
 +++ b/src/runs/background/subagent-runner.js
-@@ -27,7 +27,7 @@
+@@ -27,8 +27,8 @@
  import { timedOutRunSummary } from "../shared/partial-output.js";
  import { runSetupCommand } from "../shared/worktree-setup-command.js";
  import { DEFAULT_MAX_OUTPUT, SUBAGENT_LIFECYCLE_ARTIFACT_VERSION, truncateOutput, } from "../../shared/types.js";
 -import { DEFAULT_CONTROL_CONFIG, buildControlEvent, deriveActivityState, claimControlNotification, formatControlIntercomMessage, formatControlNoticeMessage, shouldEmitOpenToolAttention, } from "../shared/subagent-control.js";
 +import { DEFAULT_CONTROL_CONFIG, buildControlEvent, deriveActivityState, claimControlNotification, formatControlIntercomMessage, formatControlNoticeMessage, shouldEmitOpenToolAttention, PAUSE_SUPPRESSION_REASON, formatPauseSuppressionMessage, takePauseSuppressedControlEvents, } from "../shared/subagent-control.js";
  import { isDynamicRunnerGroup, isParallelGroup, flattenSteps, mapConcurrent, aggregateParallelOutputs, MAX_PARALLEL_CONCURRENCY, DEFAULT_GLOBAL_CONCURRENCY_LIMIT, Semaphore, } from "../shared/parallel-utils.js";
- import { applyThinkingSuffix, projectLaunchResolvedChildExtensions, resolvePiLaunchToolPlan } from "../shared/child-tool-plan.js";
+ import { applyThinkingSuffix, projectLaunchResolvedChildExtensions, resolvePiLaunchToolPlan, supervisorChannelDir } from "../shared/child-tool-plan.js";
+ import { retainsChildCommand } from "../shared/child-commands.js";
  import { buildRunnerChildLaunch } from "./runner-child-launch.js";
 @@ -2841,6 +2841,22 @@
          writeStatusPayload(step.activityState !== previousActivityState);
