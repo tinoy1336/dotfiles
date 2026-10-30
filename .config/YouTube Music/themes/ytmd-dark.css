@@ -153,6 +153,20 @@ ytmusic-fullbleed-thumbnail-renderer img.image {
   pointer-events: none !important;
 }
 
+/* …but the SAME component is the artist/channel page banner: an immersive
+ * header hosts its banner image inside ytmusic-fullbleed-thumbnail-renderer.
+ * Zeroing it there leaves the header's own opaque background showing, which
+ * reads as a black rectangle where the banner belongs. The image keeps its
+ * own fade-in `transition: opacity .5s`, and a running transition outranks
+ * !important, so the transition is dropped here as well. */
+ytmusic-immersive-header-renderer ytmusic-fullbleed-thumbnail-renderer,
+ytmusic-immersive-header-renderer ytmusic-fullbleed-thumbnail-renderer img.image,
+ytmusic-immersive-header-renderer ytmusic-fullbleed-thumbnail-renderer .image {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  transition: none !important;
+}
+
 /* quick-pick thumbs follow the card rounding */
 ytmusic-responsive-list-item-renderer img,
 ytmusic-responsive-list-item-renderer yt-img-shadow {
