@@ -25,6 +25,19 @@ hl.env("__EGL_VENDOR_LIBRARY_FILENAMES", "/usr/share/glvnd/egl_vendor.d/50_mesa.
 -- home-directory default, so without this the approval path refuses by name.
 hl.env("SUDO_APPROVE_ROUTE", "/home/tinoy/.local/bin/tinshell-route")
 
+-- Pinned monitor rule: the panel stays auto-configured without one, which
+-- leaves the output on an 8-bit XRGB8888 buffer. Colour management is on by
+-- default in 0.57, and a client that asks for a wide-gamut surface then
+-- composites nothing on that 8-bit output (fullscreen video goes black), so
+-- the output requests a 10-bit buffer and the `auto` preset resolves to wide.
+hl.monitor({
+    output   = "eDP-1",
+    mode     = "2880x1800@60",
+    position = "0x0",
+    scale    = 2,
+    bitdepth = 10,
+})
+
 hl.config({
     cursor = {
         -- Hyprland 0.56 defaults this to true, but this machine is a touchscreen
@@ -77,6 +90,7 @@ hl.config({
         -- ANR dialog: the default 5 missed pings fires on merely-busy apps
         -- (VS Code under load); 10 keeps the Terminate/Wait choice for real hangs.
         anr_missed_pings = 10,
+	bell_sound = "none"
     },
 })
 
