@@ -71,6 +71,15 @@ hl.config({
             new_optimizations = true,
         }
     },
+    -- A fullscreen video marked as high dynamic range switches the panel into HDR
+    -- mode, where brightness stops following the brightness keys. The panel is an
+    -- OLED, so that trade is worth taking for content that earns it; browsers are
+    -- exempted from the switch by the window rule below instead.
+    render = {
+        -- Auto-switch the output into HDR when a fullscreen client presents HDR
+        -- content. 0 = off, 1 = on, 2 = decide from the display's own EDID.
+        cm_auto_hdr = 1,
+    },
     input = {
         accel_profile = "flat",
         touchpad = {
@@ -155,6 +164,14 @@ hl.window_rule({
     float    = true,
     size     = { 1200, 760 },
     center   = true,
+})
+-- Browsers advertise HDR for ordinary video and drag the whole output into HDR
+-- mode with them, which pins the panel's luminance and ignores the brightness
+-- keys. Exempt the browser so auto HDR stays available for content that earns it.
+hl.window_rule({
+    name        = "chromium-no-auto-hdr",
+    match       = { class = "^(chromium)$" },
+    no_auto_hdr = true,
 })
 -- VS Code (class "code") frost is app-side (Vibrancy Continued makes the window
 -- transparent + frameless); the global blur frosts through its own alpha. An
