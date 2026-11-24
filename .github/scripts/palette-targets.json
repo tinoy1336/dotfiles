@@ -78,11 +78,6 @@
       "template": ".config/hosts/HOSTNAME/root/boot/grub/themes/house/theme.template.ts",
       "output": ".config/hosts/HOSTNAME/root/boot/grub/themes/house/theme.txt",
       "record": ".config/hosts/HOSTNAME/root/boot/grub/themes/house/theme.txt.record.json"
-    },
-    {
-      "template": ".config/hosts/HOSTNAME/root/usr/share/plymouth/themes/house/house.template.ts",
-      "output": ".config/hosts/HOSTNAME/root/usr/share/plymouth/themes/house/house.script",
-      "record": ".config/hosts/HOSTNAME/root/usr/share/plymouth/themes/house/house.script.record.json"
     }
   ]
 }
