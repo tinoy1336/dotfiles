@@ -1,0 +1,11 @@
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Path
+Target = usr/lib/modules/*/vmlinuz
+
+[Action]
+Description = Rebuilding the unified kernel image on the EFI partition...
+When = PostTransaction
+Exec = /usr/local/sbin/uki-rebuild
+Depends = dracut

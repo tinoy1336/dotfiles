@@ -1,0 +1,1 @@
+root=UUID=6054a5e1-d39e-4fe4-8e02-d4a1344d91e1 rw rd.luks.name=a4b02531-c275-49a6-86b0-55f99e6ca181=cryptroot root=/dev/mapper/cryptroot resume=/dev/mapper/cryptroot resume_offset=53983232 quiet loglevel=0 udev.log_level=0 rd.udev.log_level=0 systemd.show_status=no rd.systemd.show_status=no vt.global_cursor_default=0 amdgpu.seamless=1

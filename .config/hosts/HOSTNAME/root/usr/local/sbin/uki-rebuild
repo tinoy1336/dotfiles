@@ -1,0 +1,23 @@
+#!/bin/bash
+# Rebuild the unified kernel image the firmware boots directly.
+#
+# Configuration lives in /etc/dracut-uki: uki.conf carries the build options and
+# cmdline the kernel command line, so both are readable and editable without
+# touching this script. The image is staged in /tmp because dracut writes the
+# new file before replacing the old one, and the EFI partition has room for only
+# one image at a time.
+set -euo pipefail
+
+out=/efi/EFI/Linux/arch.efi
+cmdline_file=/etc/dracut-uki/cmdline
+
+stage=$(mktemp -d /tmp/uki.XXXXXX)
+trap 'rm -rf "$stage"' EXIT
+
+kver=$(ls -1 /usr/lib/modules | sort -V | tail -1)
+
+dracut --force --uefi --add-confdir /etc/dracut-uki \
+	--hostonly --kernel-cmdline "$(cat "$cmdline_file")" \
+	--kver "$kver" "$stage/arch.efi"
+
+install -m700 "$stage/arch.efi" "$out"
